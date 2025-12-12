@@ -2,7 +2,7 @@ aziz language.
 a toy lisp-like language implemented using xDSL.
 
 ```
-$ uv run aziz.py examples/test.aziz
+$ uv run src/main.py examples/test.aziz
 ```
 
 structure:
