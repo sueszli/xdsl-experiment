@@ -1,5 +1,5 @@
-aziz-lang.
-a toy lisp-like language implemented using xDSL.
+aziz programming language.
+a limited subset of common lisp implemented with xDSL.
 
 ```
 $ uv run src/main.py examples/test.aziz
