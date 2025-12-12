@@ -49,20 +49,6 @@ def main():
         if args.emit_mlir:
             print(module_op)
 
-        # Run by default unless we are just emitting mlir or outputting to file?
-        # Actually user might want to run AND output.
-        # Let's run by default.
-        # To avoid running, one could add a --no-run flag, but for now I'll just run it.
-        # If the user purely wants conversion, they use --output or --emit-mlir.
-        # If I want to be safe, I can say: "If --emit-mlir or --output is present, DO NOT run unless --run is also present?"
-        # But user wants "uv run aziz examples/test.aziz" -> run.
-
-        # Simple default: always run?
-        # Maybe check if --output or --emit-mlir IS NOT set?
-        # But what if I want to "compile and run"?
-
-        # I'll stick to: Always run.
-        # If I strictly follow "interpret by default", then I should run.
         i = Interpreter(module_op)
         i.register_implementations(AzizFunctions())
         i.call_op("main", ())
