@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from xdsl.dialects.builtin import FunctionType, IntegerAttr, IntegerType, StringAttr, SymbolNameConstraint, SymbolRefAttr, i32
 from xdsl.ir import Attribute, Dialect, Region, SSAValue
 from xdsl.irdl import IRDLOperation, attr_def, irdl_op_definition, operand_def, opt_operand_def, region_def, result_def, traits_def, var_operand_def, var_result_def
