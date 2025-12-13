@@ -1,12 +1,12 @@
 from dataclasses import dataclass
 
 from xdsl.builder import Builder, InsertPoint
-from xdsl.dialects.builtin import FunctionType, ModuleOp, i32
-from xdsl.ir import Block, Region, SSAValue
+from xdsl.dialects.builtin import FunctionType, ModuleOp, f64, i32
+from xdsl.ir import Attribute, Block, Region, SSAValue
 from xdsl.utils.scoped_dict import ScopedDict
 
-from ast_nodes import BinaryExprAST, CallExprAST, ExprAST, FunctionAST, IfExprAST, ModuleAST, NumberExprAST, PrintExprAST, PrototypeAST, VariableExprAST
-from ops import AddOp, CallOp, ConstantOp, FuncOp, IfOp, LessThanEqualOp, MulOp, PrintOp, ReturnOp, SubOp, YieldOp
+from ast_nodes import BinaryExprAST, CallExprAST, ExprAST, FunctionAST, IfExprAST, ModuleAST, NumberExprAST, PrintExprAST, PrototypeAST, StringExprAST, VariableExprAST
+from ops import AddOp, CallOp, ConstantOp, FuncOp, IfOp, LessThanEqualOp, MulOp, PrintOp, ReturnOp, StringConstantOp, SubOp, YieldOp, string_type
 
 
 @dataclass
@@ -14,11 +14,39 @@ class IRGen:
     module: ModuleOp = ModuleOp([])
     builder: Builder = None
     symbol_table: ScopedDict[str, SSAValue] | None = None
+    function_signatures: dict[str, tuple[list[Attribute], Attribute]] = None  # name -> (arg_types, return_type)
 
     def __post_init__(self):
         self.builder = Builder(InsertPoint.at_end(self.module.body.blocks[0]))
+        self.function_signatures = {}
+
+    def infer_type_from_expr(self, expr: ExprAST) -> Attribute:
+        """Infer the type of an expression without generating IR."""
+        if isinstance(expr, NumberExprAST):
+            return f64 if isinstance(expr.val, float) else i32
+        if isinstance(expr, StringExprAST):
+            return string_type
+        # For other expressions, default to i32
+        return i32
+
+    def collect_function_signatures(self, module_ast: ModuleAST):
+        """First pass: collect function signatures from call sites."""
+        for op in module_ast.ops:
+            if isinstance(op, CallExprAST):
+                arg_types = [self.infer_type_from_expr(arg) for arg in op.args]
+                # Infer return type - for now, use the type of the first argument
+                ret_type = arg_types[0] if arg_types else i32
+                self.function_signatures[op.callee] = (arg_types, ret_type)
+            elif isinstance(op, PrintExprAST):
+                if isinstance(op.arg, CallExprAST):
+                    arg_types = [self.infer_type_from_expr(arg) for arg in op.arg.args]
+                    ret_type = arg_types[0] if arg_types else i32
+                    self.function_signatures[op.arg.callee] = (arg_types, ret_type)
 
     def ir_gen_module(self, module_ast: ModuleAST) -> ModuleOp:
+        # First pass: collect function signatures
+        self.collect_function_signatures(module_ast)
+
         main_body = []
         for op in module_ast.ops:
             if isinstance(op, FunctionAST):
@@ -37,7 +65,15 @@ class IRGen:
 
     def ir_gen_function(self, func_ast: FunctionAST) -> FuncOp:
         parent_builder, self.symbol_table = self.builder, ScopedDict()
-        block = Block(arg_types=[i32] * len(func_ast.proto.args))
+
+        # Get function signature from first pass, or default to i32
+        if func_ast.proto.name in self.function_signatures:
+            arg_types, ret_type = self.function_signatures[func_ast.proto.name]
+        else:
+            arg_types = [i32] * len(func_ast.proto.args)
+            ret_type = i32
+
+        block = Block(arg_types=arg_types)
         self.builder = Builder(InsertPoint.at_end(block))
 
         for name, value in zip(func_ast.proto.args, block.args):
@@ -51,8 +87,8 @@ class IRGen:
             val = last_val if last_val else self.builder.insert(ConstantOp(0)).res
             self.builder.insert(ReturnOp(val))
 
-        ret_types = [i32] if isinstance(block.last_op, ReturnOp) and block.last_op.operands else []
-        func_op = FuncOp(func_ast.proto.name, FunctionType.from_lists([i32] * len(func_ast.proto.args), ret_types), Region(block))
+        ret_types = [ret_type] if isinstance(block.last_op, ReturnOp) and block.last_op.operands else []
+        func_op = FuncOp(func_ast.proto.name, FunctionType.from_lists(arg_types, ret_types), Region(block))
 
         self.builder = parent_builder
         return self.builder.insert(func_op)
@@ -80,7 +116,11 @@ class IRGen:
 
         if isinstance(expr, CallExprAST):
             args = [self.ir_gen_expr(arg) for arg in expr.args]
-            return self.builder.insert(CallOp(expr.callee, args, [i32])).res[0]
+            # Get return type from function signature
+            ret_type = i32
+            if expr.callee in self.function_signatures:
+                _, ret_type = self.function_signatures[expr.callee]
+            return self.builder.insert(CallOp(expr.callee, args, [ret_type])).res[0]
 
         if isinstance(expr, PrintExprAST):
             self.builder.insert(PrintOp(self.ir_gen_expr(expr.arg)))
@@ -104,5 +144,8 @@ class IRGen:
 
             self.builder = cursor
             return if_op.res
+
+        if isinstance(expr, StringExprAST):
+            return self.builder.insert(StringConstantOp(expr.val)).res
 
         raise Exception(f"Unknown expr: {expr}")

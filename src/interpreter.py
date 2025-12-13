@@ -27,6 +27,10 @@ class AzizFunctions(InterpreterFunctions):
     def run_constant(self, i: Interpreter, op: ops.ConstantOp, args: tuple[Any, ...]):
         return (op.attributes["value"].value.data,)
 
+    @impl(ops.StringConstantOp)
+    def run_string_constant(self, i: Interpreter, op: ops.StringConstantOp, args: tuple[Any, ...]):
+        return (op.attributes["value"].data,)
+
     @impl(ops.PrintOp)
     def run_print(self, i: Interpreter, op: ops.PrintOp, args: tuple[Any, ...]):
         print(args[0])

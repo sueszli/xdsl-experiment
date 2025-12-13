@@ -1,40 +1,66 @@
-from xdsl.dialects.builtin import FunctionType, IntegerAttr, IntegerType, StringAttr, SymbolNameConstraint, SymbolRefAttr, i32
-from xdsl.ir import Attribute, Block, Dialect, Region, SSAValue
-from xdsl.irdl import IRDLOperation, attr_def, irdl_op_definition, operand_def, opt_operand_def, region_def, result_def, traits_def, var_operand_def, var_result_def
+from xdsl.dialects.builtin import AnyFloat, FloatAttr, FunctionType, IntegerAttr, IntegerType, StringAttr, SymbolNameConstraint, SymbolRefAttr, f64, i32
+from xdsl.ir import Attribute, Block, Dialect, ParametrizedAttribute, Region, SSAValue
+from xdsl.irdl import AnyOf, IRDLOperation, attr_def, irdl_attr_definition, irdl_op_definition, operand_def, opt_operand_def, region_def, result_def, traits_def, var_operand_def, var_result_def
 from xdsl.traits import CallableOpInterface, HasParent, IsTerminator, Pure, SymbolOpInterface
+
+
+@irdl_attr_definition
+class StringType(ParametrizedAttribute):
+    name = "aziz.string"
+
+
+string_type = StringType()
 
 
 @irdl_op_definition
 class ConstantOp(IRDLOperation):
     name, traits = "aziz.constant", traits_def(Pure())
-    value, res = attr_def(IntegerAttr[IntegerType]), result_def(IntegerType)
+    value = attr_def(Attribute)
+    res = result_def(AnyOf([IntegerType, AnyFloat]))
 
-    def __init__(self, value: int):
-        super().__init__(result_types=[i32], attributes={"value": IntegerAttr(value, i32)})
+    def __init__(self, value: int | float):
+        if isinstance(value, float):
+            super().__init__(result_types=[f64], attributes={"value": FloatAttr(value, f64)})
+        else:
+            super().__init__(result_types=[i32], attributes={"value": IntegerAttr(value, i32)})
+
+
+@irdl_op_definition
+class StringConstantOp(IRDLOperation):
+    name, traits = "aziz.string_constant", traits_def(Pure())
+    value = attr_def(StringAttr)
+    res = result_def(StringType)
+
+    def __init__(self, value: str):
+        super().__init__(result_types=[string_type], attributes={"value": StringAttr(value)})
 
 
 @irdl_op_definition
 class AddOp(IRDLOperation):
     name, traits = "aziz.add", traits_def(Pure())
-    lhs, rhs, res = operand_def(IntegerType), operand_def(IntegerType), result_def(IntegerType)
+    lhs = operand_def(AnyOf([IntegerType, AnyFloat]))
+    rhs = operand_def(AnyOf([IntegerType, AnyFloat]))
+    res = result_def(AnyOf([IntegerType, AnyFloat]))
 
     def __init__(self, lhs: SSAValue, rhs: SSAValue):
-        super().__init__(operands=[lhs, rhs], result_types=[i32])
+        super().__init__(operands=[lhs, rhs], result_types=[lhs.type])
 
 
 @irdl_op_definition
 class MulOp(IRDLOperation):
     name, traits = "aziz.mul", traits_def(Pure())
-    lhs, rhs, res = operand_def(IntegerType), operand_def(IntegerType), result_def(IntegerType)
+    lhs = operand_def(AnyOf([IntegerType, AnyFloat]))
+    rhs = operand_def(AnyOf([IntegerType, AnyFloat]))
+    res = result_def(AnyOf([IntegerType, AnyFloat]))
 
     def __init__(self, lhs: SSAValue, rhs: SSAValue):
-        super().__init__(operands=[lhs, rhs], result_types=[i32])
+        super().__init__(operands=[lhs, rhs], result_types=[lhs.type])
 
 
 @irdl_op_definition
 class PrintOp(IRDLOperation):
     name = "aziz.print"
-    input = operand_def(IntegerType)
+    input = operand_def(AnyOf([IntegerType, AnyFloat, StringType]))
 
     def __init__(self, input: SSAValue):
         super().__init__(operands=[input])
@@ -67,7 +93,8 @@ class FuncOp(IRDLOperation):
 @irdl_op_definition
 class ReturnOp(IRDLOperation):
     name = "aziz.return"
-    input, traits = opt_operand_def(IntegerType), traits_def(IsTerminator(), HasParent(FuncOp))
+    input = opt_operand_def(AnyOf([IntegerType, AnyFloat, StringType]))
+    traits = traits_def(IsTerminator(), HasParent(FuncOp))
 
     def __init__(self, input: SSAValue | None = None):
         super().__init__(operands=[input] if input else [])
@@ -76,7 +103,9 @@ class ReturnOp(IRDLOperation):
 @irdl_op_definition
 class CallOp(IRDLOperation):
     name = "aziz.call"
-    callee, arguments, res = attr_def(SymbolRefAttr), var_operand_def(IntegerType), var_result_def(IntegerType)
+    callee = attr_def(SymbolRefAttr)
+    arguments = var_operand_def(AnyOf([IntegerType, AnyFloat, StringType]))
+    res = var_result_def(AnyOf([IntegerType, AnyFloat, StringType]))
 
     def __init__(self, callee: str, args: list[SSAValue], ret_type: list[Attribute]):
         super().__init__(operands=[args], result_types=[ret_type], attributes={"callee": SymbolRefAttr(callee)})
@@ -85,16 +114,20 @@ class CallOp(IRDLOperation):
 @irdl_op_definition
 class SubOp(IRDLOperation):
     name, traits = "aziz.sub", traits_def(Pure())
-    lhs, rhs, res = operand_def(IntegerType), operand_def(IntegerType), result_def(IntegerType)
+    lhs = operand_def(AnyOf([IntegerType, AnyFloat]))
+    rhs = operand_def(AnyOf([IntegerType, AnyFloat]))
+    res = result_def(AnyOf([IntegerType, AnyFloat]))
 
     def __init__(self, lhs: SSAValue, rhs: SSAValue):
-        super().__init__(operands=[lhs, rhs], result_types=[i32])
+        super().__init__(operands=[lhs, rhs], result_types=[lhs.type])
 
 
 @irdl_op_definition
 class LessThanEqualOp(IRDLOperation):
     name, traits = "aziz.le", traits_def(Pure())
-    lhs, rhs, res = operand_def(IntegerType), operand_def(IntegerType), result_def(IntegerType)
+    lhs = operand_def(AnyOf([IntegerType, AnyFloat]))
+    rhs = operand_def(AnyOf([IntegerType, AnyFloat]))
+    res = result_def(IntegerType)
 
     def __init__(self, lhs: SSAValue, rhs: SSAValue):
         super().__init__(operands=[lhs, rhs], result_types=[i32])
@@ -103,7 +136,8 @@ class LessThanEqualOp(IRDLOperation):
 @irdl_op_definition
 class YieldOp(IRDLOperation):
     name = "aziz.yield"
-    input, traits = operand_def(IntegerType), traits_def(IsTerminator())  # HasParent(IfOp) would need IfOp defined first or forward ref
+    input = operand_def(AnyOf([IntegerType, AnyFloat, StringType]))
+    traits = traits_def(IsTerminator())  # HasParent(IfOp) would need IfOp defined first or forward ref
 
     def __init__(self, input: SSAValue):
         super().__init__(operands=[input])
@@ -112,11 +146,12 @@ class YieldOp(IRDLOperation):
 @irdl_op_definition
 class IfOp(IRDLOperation):
     name = "aziz.if"
-    cond, res = operand_def(IntegerType), result_def(IntegerType)
+    cond = operand_def(IntegerType)
+    res = result_def(AnyOf([IntegerType, AnyFloat, StringType]))
     then_region, else_region = region_def(), region_def()
 
-    def __init__(self, cond: SSAValue):
-        super().__init__(operands=[cond], result_types=[i32], regions=[Region(Block()), Region(Block())])
+    def __init__(self, cond: SSAValue, result_type: Attribute = i32):
+        super().__init__(operands=[cond], result_types=[result_type], regions=[Region(Block()), Region(Block())])
 
 
-Aziz = Dialect("aziz", [ConstantOp, AddOp, SubOp, MulOp, LessThanEqualOp, PrintOp, FuncOp, ReturnOp, CallOp, YieldOp, IfOp], [])
+Aziz = Dialect("aziz", [ConstantOp, StringConstantOp, AddOp, SubOp, MulOp, LessThanEqualOp, PrintOp, FuncOp, ReturnOp, CallOp, YieldOp, IfOp], [StringType])

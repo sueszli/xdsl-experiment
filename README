@@ -3,16 +3,23 @@
 ⠀⠀⠘⠉⠉⠙⣿⣿⣿⣷⠀⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⢸⣿⣿⣿⣧⠀⠀     aziz programming language.
 ⠀⠀⠀⠀⠀⠀⣼⣿⣿⣿⣿⣆⠀
-⠀⠀⠀⠀⠀⣼⣿⣿⣿⣿⣿⣿⡀     a tiny common lisp subset
-⠀⠀⠀⠀⣴⣿⣿⣿⠟⣿⣿⣿⣷     implemented with xDSL.
-⠀⠀⠀⣰⣿⣿⣿⡏⠀⠸⣿⣿⣿⣇
+⠀⠀⠀⠀⠀⣼⣿⣿⣿⣿⣿⣿⡀     a common lisp subset
+⠀⠀⠀⠀⣴⣿⣿⣿⠟⣿⣿⣿⣷     with an MLIR-based compiler
+⠀⠀⠀⣰⣿⣿⣿⡏⠀⠸⣿⣿⣿⣇    using xDSL infrastructure.
 ⠀⠀⢠⣿⣿⣿⡟⠀⠀⠀⢻⣿⣿⣿⡆
 ⠀⢠⣿⣿⣿⡿⠀⠀⠀⠀⠀⢿⣿⣿⣷⣤⡄
 ⢀⣾⣿⣿⣿⠁⠀⠀⠀⠀⠀⠈⠿⣿⣿⣿⡇
 
-based on the toy language from the docs:
-https://github.com/xdslproject/xdsl/tree/main/docs/Toy
+usage
 
-usage:
+```
+uv run src/main.py examples/hello.aziz
+uv run src/main.py examples/if.aziz
+uv run src/main.py examples/rec.aziz
+uv run src/main.py examples/test.aziz
+```
 
-$ uv run src/main.py examples/test.aziz
+references
+
+- https://mlir.llvm.org/docs/Tutorials/Toy/
+- https://github.com/xdslproject/xdsl/tree/main/docs/Toy
