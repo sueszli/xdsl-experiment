@@ -42,7 +42,14 @@ class PrintExprAST(ExprAST):
 
 
 @dataclass(slots=True)
-class PrototypeAST:
+class IfExprAST(ExprAST):
+    cond: ExprAST
+    then_expr: ExprAST
+    else_expr: ExprAST
+
+
+@dataclass(slots=True)
+class PrototypeAST:  # function's signature without body
     loc: Location
     name: str
     args: list[str]

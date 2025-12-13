@@ -1,14 +1,19 @@
 ⠀⠀⢀⣤⣤⣤⣤⣀⠀⠀⠀⠀⠀⠀⠀⠀⠀
 ⠀⠀⢸⣿⣿⣿⣿⣿⣷⡀⠀⠀⠀⠀⠀⠀⠀
 ⠀⠀⠘⠉⠉⠙⣿⣿⣿⣷⠀⠀⠀⠀⠀⠀⠀
-⠀⠀⠀⠀⠀⠀⢸⣿⣿⣿⣧⠀⠀  aziz programming language.⠀ 
+⠀⠀⠀⠀⠀⠀⢸⣿⣿⣿⣧⠀⠀     aziz programming language.
 ⠀⠀⠀⠀⠀⠀⣼⣿⣿⣿⣿⣆⠀
-⠀⠀⠀⠀⠀⣼⣿⣿⣿⣿⣿⣿⡀  a tiny common lisp subset
-⠀⠀⠀⠀⣴⣿⣿⣿⠟⣿⣿⣿⣷  implemented with xDSL.
+⠀⠀⠀⠀⠀⣼⣿⣿⣿⣿⣿⣿⡀     a tiny common lisp subset
+⠀⠀⠀⠀⣴⣿⣿⣿⠟⣿⣿⣿⣷     implemented with xDSL.
 ⠀⠀⠀⣰⣿⣿⣿⡏⠀⠸⣿⣿⣿⣇
 ⠀⠀⢠⣿⣿⣿⡟⠀⠀⠀⢻⣿⣿⣿⡆
 ⠀⢠⣿⣿⣿⡿⠀⠀⠀⠀⠀⢿⣿⣿⣷⣤⡄
 ⢀⣾⣿⣿⣿⠁⠀⠀⠀⠀⠀⠈⠿⣿⣿⣿⡇
+
+- lexer: turns source code into tokens
+- parser: turns source code into an AST
+- compiler: turns AST into xDSL IR
+- interpreter: runs the xDSL IR
 
 usage:
 

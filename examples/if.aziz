@@ -1,0 +1,5 @@
+(defun test (x)
+  (if x
+      1
+      0))
+(print (test 1))
