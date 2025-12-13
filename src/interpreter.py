@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import Any
 
 from xdsl.interpreter import Interpreter, InterpreterFunctions, ReturnedValues, impl, impl_callable, impl_terminator, register_impls
