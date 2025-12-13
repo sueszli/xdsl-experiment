@@ -5,7 +5,7 @@ from xdsl.dialects.builtin import FunctionType, ModuleOp, f64, i32
 from xdsl.ir import Attribute, Block, Region, SSAValue
 from xdsl.utils.scoped_dict import ScopedDict
 
-from ops import AddOp, CallOp, ConstantOp, FuncOp, IfOp, LessThanEqualOp, MulOp, PrintOp, ReturnOp, StringConstantOp, SubOp, YieldOp, string_type
+from dialects.aziz import AddOp, CallOp, ConstantOp, FuncOp, IfOp, LessThanEqualOp, MulOp, PrintOp, ReturnOp, StringConstantOp, SubOp, YieldOp, string_type
 
 from .ast_nodes import BinaryExprAST, CallExprAST, ExprAST, FunctionAST, IfExprAST, ModuleAST, NumberExprAST, PrintExprAST, PrototypeAST, StringExprAST, VariableExprAST
 

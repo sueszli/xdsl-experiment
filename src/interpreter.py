@@ -2,7 +2,7 @@ from typing import Any
 
 from xdsl.interpreter import Interpreter, InterpreterFunctions, ReturnedValues, impl, impl_callable, impl_terminator, register_impls
 
-import ops
+from dialects import aziz as ops
 
 
 @register_impls
