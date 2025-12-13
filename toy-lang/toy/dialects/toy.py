@@ -7,52 +7,12 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import TypeAlias
 
-from xdsl.dialects.builtin import (
-    DenseIntOrFPElementsAttr,
-    Float64Type,
-    FunctionType,
-    StringAttr,
-    SymbolNameConstraint,
-    SymbolRefAttr,
-    TensorType,
-    UnrankedTensorType,
-    f64,
-)
+from xdsl.dialects.builtin import DenseIntOrFPElementsAttr, Float64Type, FunctionType, StringAttr, SymbolNameConstraint, SymbolRefAttr, TensorType, UnrankedTensorType, f64
 from xdsl.interfaces import HasCanonicalizationPatternsInterface
-from xdsl.ir import (
-    Attribute,
-    Block,
-    Dialect,
-    Operation,
-    Region,
-    SSAValue,
-)
-from xdsl.irdl import (
-    IRDLOperation,
-    attr_def,
-    irdl_op_definition,
-    operand_def,
-    opt_attr_def,
-    opt_operand_def,
-    region_def,
-    result_def,
-    traits_def,
-    var_operand_def,
-    var_result_def,
-)
-from xdsl.pattern_rewriter import (
-    PatternRewriter,
-    RewritePattern,
-    op_type_rewrite_pattern,
-)
-from xdsl.traits import (
-    CallableOpInterface,
-    HasParent,
-    HasShapeInferencePatternsTrait,
-    IsTerminator,
-    Pure,
-    SymbolOpInterface,
-)
+from xdsl.ir import Attribute, Block, Dialect, Operation, Region, SSAValue
+from xdsl.irdl import IRDLOperation, attr_def, irdl_op_definition, operand_def, opt_attr_def, opt_operand_def, region_def, result_def, traits_def, var_operand_def, var_result_def
+from xdsl.pattern_rewriter import PatternRewriter, RewritePattern, op_type_rewrite_pattern
+from xdsl.traits import CallableOpInterface, HasParent, HasShapeInferencePatternsTrait, IsTerminator, Pure, SymbolOpInterface
 from xdsl.utils.exceptions import VerifyException
 from xdsl.utils.hints import isa
 
@@ -89,16 +49,11 @@ class ConstantOp(IRDLOperation):
 
     @staticmethod
     def from_value(value: float) -> ConstantOp:
-        return ConstantOp(
-            DenseIntOrFPElementsAttr.from_list(TensorType(f64, []), (value,))
-        )
+        return ConstantOp(DenseIntOrFPElementsAttr.from_list(TensorType(f64, []), (value,)))
 
     def verify_(self) -> None:
         if not self.res.type == self.value.type:
-            raise VerifyException(
-                "Expected value and result types to be equal: "
-                f"{self.res.type}, {self.value.type}"
-            )
+            raise VerifyException("Expected value and result types to be equal: " f"{self.res.type}, {self.value.type}")
 
 
 class InferAddOpShapeInferencePattern(RewritePattern):
@@ -106,10 +61,7 @@ class InferAddOpShapeInferencePattern(RewritePattern):
         if not isinstance(op, AddOp):
             return
 
-        if not (
-            isa(op_lhs_type := op.lhs.type, TensorType)
-            and isinstance(op_rhs_type := op.rhs.type, TensorType)
-        ):
+        if not (isa(op_lhs_type := op.lhs.type, TensorType) and isinstance(op_rhs_type := op.rhs.type, TensorType)):
             return
         assert op_lhs_type.get_shape() == op_rhs_type.get_shape()
         if isinstance(op_res_type := op.res.type, TensorType):
@@ -156,9 +108,7 @@ class AddOp(IRDLOperation):
                     shape = arg_type.shape
                 else:
                     if shape != arg_type.shape:
-                        raise VerifyException(
-                            "Expected AddOp args to have the same shape"
-                        )
+                        raise VerifyException("Expected AddOp args to have the same shape")
 
 
 class FuncOpCallableInterface(CallableOpInterface):
@@ -264,10 +214,7 @@ class MulOpInferShapeInferencePattern(RewritePattern):
         if not isinstance(op, MulOp):
             return
 
-        if not (
-            isa(op_lhs_type := op.lhs.type, TensorType)
-            and isinstance(op_rhs_type := op.rhs.type, TensorType)
-        ):
+        if not (isa(op_lhs_type := op.lhs.type, TensorType) and isinstance(op_rhs_type := op.rhs.type, TensorType)):
             return
 
         assert op_lhs_type.get_shape() == op_rhs_type.get_shape()
@@ -311,9 +258,7 @@ class MulOp(IRDLOperation):
                     shape = arg_type.shape
                 else:
                     if shape != arg_type.shape:
-                        raise VerifyException(
-                            "Expected MulOp args to have the same shape"
-                        )
+                        raise VerifyException("Expected MulOp args to have the same shape")
 
 
 @irdl_op_definition
@@ -360,9 +305,7 @@ class ReturnOp(IRDLOperation):
 
         function_return_types = func_op.function_type.outputs.data
         if function_return_types != tuple(self.operand_types):
-            raise VerifyException(
-                "Expected arguments to have the same types as the function output types"
-            )
+            raise VerifyException("Expected arguments to have the same types as the function output types")
 
 
 @irdl_op_definition
@@ -411,11 +354,7 @@ class FoldConstantReshapeOpPattern(RewritePattern):
         if isinstance(op.arg.owner, ConstantOp):
             rewriter.replace_op(
                 op,
-                ConstantOp(
-                    DenseIntOrFPElementsAttr.from_list(
-                        type=op.res.type, data=op.arg.owner.value.get_values()
-                    )
-                ),
+                ConstantOp(DenseIntOrFPElementsAttr.from_list(type=op.res.type, data=op.arg.owner.value.get_values())),
             )
 
 
@@ -452,9 +391,7 @@ class TransposeOp(HasCanonicalizationPatternsInterface, IRDLOperation):
 
     def __init__(self, arg: SSAValue):
         if isa(arg.type, TensorTypeF64):
-            output_type = TensorType(
-                arg.type.element_type, reversed(arg.type.get_shape())
-            )
+            output_type = TensorType(arg.type.element_type, reversed(arg.type.get_shape()))
         else:
             output_type = arg.type
 

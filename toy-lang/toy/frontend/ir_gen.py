@@ -4,47 +4,13 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 from xdsl.builder import Builder, InsertPoint
-from xdsl.dialects.builtin import (
-    FileLineColLoc,
-    IntAttr,
-    ModuleOp,
-    StringAttr,
-    TensorType,
-    UnrankedTensorType,
-    f64,
-)
+from xdsl.dialects.builtin import FileLineColLoc, IntAttr, ModuleOp, StringAttr, TensorType, UnrankedTensorType, f64
 from xdsl.ir import Block, Region, SSAValue
 from xdsl.utils.lexer import Location
 from xdsl.utils.scoped_dict import ScopedDict
 
-from ..dialects.toy import (
-    AddOp,
-    AnyTensorTypeF64,
-    ConstantOp,
-    FuncOp,
-    FunctionType,
-    GenericCallOp,
-    MulOp,
-    PrintOp,
-    ReshapeOp,
-    ReturnOp,
-    TransposeOp,
-    UnrankedTensorTypeF64,
-)
-from .toy_ast import (
-    BinaryExprAST,
-    CallExprAST,
-    ExprAST,
-    FunctionAST,
-    LiteralExprAST,
-    ModuleAST,
-    NumberExprAST,
-    PrintExprAST,
-    PrototypeAST,
-    ReturnExprAST,
-    VarDeclExprAST,
-    VariableExprAST,
-)
+from ..dialects.toy import AddOp, AnyTensorTypeF64, ConstantOp, FuncOp, FunctionType, GenericCallOp, MulOp, PrintOp, ReshapeOp, ReturnOp, TransposeOp, UnrankedTensorTypeF64
+from .toy_ast import BinaryExprAST, CallExprAST, ExprAST, FunctionAST, LiteralExprAST, ModuleAST, NumberExprAST, PrintExprAST, PrototypeAST, ReturnExprAST, VarDeclExprAST, VariableExprAST
 
 
 class IRGenError(Exception):
@@ -132,9 +98,7 @@ class IRGen:
 
         # This is a generic function, the return type will be inferred later.
         # Arguments type are uniformly unranked tensors.
-        func_type = FunctionType.from_lists(
-            [self.get_type([])] * len(proto_ast.args), [self.get_type([])]
-        )
+        func_type = FunctionType.from_lists([self.get_type([])] * len(proto_ast.args), [self.get_type([])])
         return self.builder.insert(FuncOp(proto_ast.name, func_type, Region()))
 
     def ir_gen_function(self, function_ast: FunctionAST) -> FuncOp:
@@ -149,9 +113,7 @@ class IRGen:
         proto_args = function_ast.proto.args
 
         # Create the block for the current function
-        block = Block(
-            arg_types=[UnrankedTensorType(f64) for _ in range(len(proto_args))]
-        )
+        block = Block(arg_types=[UnrankedTensorType(f64) for _ in range(len(proto_args))])
         self.builder = Builder(InsertPoint.at_end(block))
 
         # Declare all the function arguments in the symbol table.
@@ -186,9 +148,7 @@ class IRGen:
         self.symbol_table = None
         self.builder = parent_builder
 
-        func = self.builder.insert(
-            FuncOp(function_ast.proto.name, func_type, Region(block), private=private)
-        )
+        func = self.builder.insert(FuncOp(function_ast.proto.name, func_type, Region(block), private=private))
 
         return func
 
@@ -288,16 +248,11 @@ class IRGen:
         """
 
         if isinstance(expr, LiteralExprAST):
-            return [
-                value for inner in expr.values for value in self.collect_data(inner)
-            ]
+            return [value for inner in expr.values for value in self.collect_data(inner)]
         elif isinstance(expr, NumberExprAST):
             return [expr.val]
         else:
-            raise IRGenError(
-                f"Unsupported expr ({expr}) of type ({type(expr)}), "
-                "expected literal or number expr"
-            )
+            raise IRGenError(f"Unsupported expr ({expr}) of type ({type(expr)}), " "expected literal or number expr")
 
     def ir_gen_call_expr(self, call: CallExprAST) -> SSAValue:
         """
@@ -315,19 +270,14 @@ class IRGen:
         # straightforward emission.
         if callee == "transpose":
             if len(operands) != 1:
-                raise IRGenError(
-                    "MLIR codegen encountered an error: toy.transpose "
-                    "does not accept multiple arguments"
-                )
+                raise IRGenError("MLIR codegen encountered an error: toy.transpose " "does not accept multiple arguments")
             op = self.builder.insert(TransposeOp(operands[0]))
             return op.res
 
         # Otherwise this is a call to a user-defined function. Calls to
         # user-defined functions are mapped to a custom call that takes the callee
         # name as an attribute.
-        op = self.builder.insert(
-            GenericCallOp(callee, operands, [UnrankedTensorTypeF64(f64)])
-        )
+        op = self.builder.insert(GenericCallOp(callee, operands, [UnrankedTensorTypeF64(f64)]))
 
         return op.res[0]
 
@@ -358,9 +308,7 @@ class IRGen:
         if isinstance(expr, NumberExprAST):
             return self.ir_gen_number_expr(expr)
         else:
-            raise IRGenError(
-                f"MLIR codegen encountered an unhandled expr kind '{type(expr).__name__}'"
-            )
+            raise IRGenError(f"MLIR codegen encountered an unhandled expr kind '{type(expr).__name__}'")
 
     def ir_gen_var_decl_expr(self, vardecl: VarDeclExprAST) -> SSAValue:
         """

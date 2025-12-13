@@ -5,21 +5,7 @@ from xdsl.parser import GenericParser, ParserState
 from xdsl.utils.lexer import Input
 
 from .lexer import ToyLexer, ToyToken, ToyTokenKind
-from .toy_ast import (
-    BinaryExprAST,
-    CallExprAST,
-    ExprAST,
-    FunctionAST,
-    LiteralExprAST,
-    ModuleAST,
-    NumberExprAST,
-    PrintExprAST,
-    PrototypeAST,
-    ReturnExprAST,
-    VarDeclExprAST,
-    VariableExprAST,
-    VarType,
-)
+from .toy_ast import BinaryExprAST, CallExprAST, ExprAST, FunctionAST, LiteralExprAST, ModuleAST, NumberExprAST, PrintExprAST, PrototypeAST, ReturnExprAST, VarDeclExprAST, VariableExprAST, VarType
 
 
 class ToyParser(GenericParser[ToyTokenKind]):
@@ -83,9 +69,7 @@ class ToyParser(GenericParser[ToyTokenKind]):
         numberexpr ::= number
         """
         number_token = self._pop(ToyTokenKind.NUMBER)
-        return NumberExprAST(
-            number_token.span.get_location(), float(number_token.span.text)
-        )
+        return NumberExprAST(number_token.span.get_location(), float(number_token.span.text))
 
     def parse_tensor_literal_expr(self) -> LiteralExprAST | NumberExprAST:
         """
@@ -99,9 +83,7 @@ class ToyParser(GenericParser[ToyTokenKind]):
         open_bracket = self._current_token
 
         # Hold the list of values at this nesting level.
-        values = self.parse_comma_separated_list(
-            self.Delimiter.SQUARE, self.parse_tensor_literal_expr
-        )
+        values = self.parse_comma_separated_list(self.Delimiter.SQUARE, self.parse_tensor_literal_expr)
 
         # Hold the dimensions for all the nesting inside this level.
         # Fill in the dimensions now. First the current nesting level:
@@ -112,17 +94,13 @@ class ToyParser(GenericParser[ToyTokenKind]):
         if any(type(val) is LiteralExprAST for val in values):
             all_tensors = all(type(val) is LiteralExprAST for val in values)
             if not all_tensors:
-                self.raise_error(
-                    "Expected uniform well-nested dimensions inside literal expression"
-                )
+                self.raise_error("Expected uniform well-nested dimensions inside literal expression")
 
             tensor_values = cast(list[LiteralExprAST], values)
             first = tensor_values[0].dims
             all_equal = all(val.dims == first for val in tensor_values)
             if not all_equal:
-                self.raise_error(
-                    "Expected uniform well-nested dimensions inside literal expression"
-                )
+                self.raise_error("Expected uniform well-nested dimensions inside literal expression")
 
             dims += first
 
@@ -140,9 +118,7 @@ class ToyParser(GenericParser[ToyTokenKind]):
         ::= identifier '(' expression ')'
         """
         name = self._pop(ToyTokenKind.IDENTIFIER)
-        args = self.parse_optional_comma_separated_list(
-            self.Delimiter.PAREN, self.parse_expression
-        )
+        args = self.parse_optional_comma_separated_list(self.Delimiter.PAREN, self.parse_expression)
         if args is None:
             # Simple variable ref.
             return VariableExprAST(name.span.get_location(), name.text)

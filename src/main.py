@@ -21,13 +21,13 @@ assert filename.endswith(".aziz")
 prog = Path(filename).read_text()
 
 parsed = Parser(prog, filename).parse_module()
-gray = lambda s: f"\033[90m{s}\033[00m"
-print(gray(dump(parsed)))
-print("\n" + "=" * 80 + "\n")
+print_gray = lambda s: print(f"\n\033[90m{s}\033[00m\n")
+print_gray(dump(parsed))
+print_gray("=" * 80)
 
 module_op = IRGen().ir_gen_module(parsed)
-print(gray(module_op.dump()))
-print("\n" + "=" * 80 + "\n")
+print_gray(module_op)
+print_gray("=" * 80)
 
 interpreter = Interpreter(module_op)
 interpreter.register_implementations(AzizFunctions())

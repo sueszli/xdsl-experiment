@@ -1,12 +1,7 @@
 from xdsl.context import Context
 from xdsl.dialects.builtin import ModuleOp, StringAttr
 from xdsl.passes import ModulePass
-from xdsl.pattern_rewriter import (
-    PatternRewriter,
-    PatternRewriteWalker,
-    RewritePattern,
-    op_type_rewrite_pattern,
-)
+from xdsl.pattern_rewriter import PatternRewriter, PatternRewriteWalker, RewritePattern, op_type_rewrite_pattern
 from xdsl.rewriter import InsertPoint
 from xdsl.traits import CallableOpInterface, SymbolTable
 from xdsl.transforms.dead_code_elimination import dce
@@ -69,11 +64,7 @@ class RemoveUnusedPrivateFunctions(RewritePattern):
             module = op.parent_op()
             assert isinstance(module, ModuleOp)
 
-            self._used_funcs = {
-                op.callee.string_value()
-                for op in module.walk()
-                if isinstance(op, toy.GenericCallOp)
-            }
+            self._used_funcs = {op.callee.string_value() for op in module.walk() if isinstance(op, toy.GenericCallOp)}
 
         return op.sym_name.data not in self._used_funcs
 
