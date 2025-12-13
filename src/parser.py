@@ -28,6 +28,8 @@ class AzizParser(GenericParser[AzizTokenKind]):
         (4) finally calls GenericParser constructor
         super().__init__(ParserState(...))
         └─> self._parser_state = ParserState(...)
+
+        (5) then we can call `.parse_module()` to parse the module
         """
         super().__init__(ParserState(AzizLexer(Input(program, str(file)))))
 
