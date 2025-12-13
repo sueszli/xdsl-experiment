@@ -5,8 +5,8 @@ from xdsl.dialects.builtin import FunctionType, ModuleOp, i32
 from xdsl.ir import Block, Region, SSAValue
 from xdsl.utils.scoped_dict import ScopedDict
 
-from ast_nodes import BinaryExprAST, CallExprAST, ExprAST, FunctionAST, ModuleAST, NumberExprAST, PrintExprAST, PrototypeAST, VariableExprAST
-from ops import AddOp, CallOp, ConstantOp, FuncOp, MulOp, PrintOp, ReturnOp
+from ast_nodes import BinaryExprAST, CallExprAST, ExprAST, FunctionAST, IfExprAST, ModuleAST, NumberExprAST, PrintExprAST, PrototypeAST, VariableExprAST
+from ops import AddOp, CallOp, ConstantOp, FuncOp, IfOp, LessThanEqualOp, MulOp, PrintOp, ReturnOp, SubOp, YieldOp
 
 
 @dataclass
@@ -64,6 +64,10 @@ class IRGen:
                 return self.builder.insert(AddOp(lhs, rhs)).res
             if expr.op == "*":
                 return self.builder.insert(MulOp(lhs, rhs)).res
+            if expr.op == "-":
+                return self.builder.insert(SubOp(lhs, rhs)).res
+            if expr.op == "<=":
+                return self.builder.insert(LessThanEqualOp(lhs, rhs)).res
             raise Exception(f"Unknown op {expr.op}")
 
         if isinstance(expr, NumberExprAST):
@@ -81,5 +85,24 @@ class IRGen:
         if isinstance(expr, PrintExprAST):
             self.builder.insert(PrintOp(self.ir_gen_expr(expr.arg)))
             return None
+
+        if isinstance(expr, IfExprAST):
+            cond = self.ir_gen_expr(expr.cond)
+            if_op = IfOp(cond)
+            self.builder.insert(if_op)
+
+            # Generate Then Block
+            cursor = self.builder
+            self.builder = Builder(InsertPoint.at_end(if_op.then_region.blocks[0]))
+            then_result = self.ir_gen_expr(expr.then_expr)
+            self.builder.insert(YieldOp(then_result))
+
+            # Generate Else Block
+            self.builder = Builder(InsertPoint.at_end(if_op.else_region.blocks[0]))
+            else_result = self.ir_gen_expr(expr.else_expr)
+            self.builder.insert(YieldOp(else_result))
+
+            self.builder = cursor
+            return if_op.res
 
         raise Exception(f"Unknown expr: {expr}")

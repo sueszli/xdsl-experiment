@@ -10,10 +10,8 @@
 ⠀⢠⣿⣿⣿⡿⠀⠀⠀⠀⠀⢿⣿⣿⣷⣤⡄
 ⢀⣾⣿⣿⣿⠁⠀⠀⠀⠀⠀⠈⠿⣿⣿⣿⡇
 
-- lexer: turns source code into tokens
-- parser: turns source code into an AST
-- compiler: turns AST into xDSL IR
-- interpreter: runs the xDSL IR
+based on the toy language from the xDSL documentation:
+https://github.com/xdslproject/xdsl/tree/main/docs/Toy
 
 usage:
 
