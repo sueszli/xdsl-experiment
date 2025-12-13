@@ -9,6 +9,26 @@ from lexer import AzizLexer, AzizToken, AzizTokenKind
 
 class AzizParser(GenericParser[AzizTokenKind]):
     def __init__(self, file: Path, program: str):
+        """
+        (0) calling `AzizParser` constructor
+        AzizParser(Path("hello.aziz"), "(defun main () ...)")
+
+        (1) first creates an input text wrapper
+        Input("(defun main () ...)", "hello.aziz")
+
+        (2) then creates a lexer, inheriting from `Lexer`, that implements the `lex` method
+        AzizLexer(Input(...))
+
+        (3) then creates a parser state. calls `lex()` to get the first token
+        ParserState(AzizLexer(...))
+        └─> self.lexer = AzizLexer(...)
+        └─> self.current_token = lexer.lex()
+        └─> self.dialect_stack = ["builtin"]
+
+        (4) finally calls GenericParser constructor
+        super().__init__(ParserState(...))
+        └─> self._parser_state = ParserState(...)
+        """
         super().__init__(ParserState(AzizLexer(Input(program, str(file)))))
 
     def parse_module(self) -> ModuleAST:  # entry point
@@ -86,7 +106,7 @@ class AzizParser(GenericParser[AzizTokenKind]):
             name = head.text
 
             # binary operators
-            if name in ("+", "*", "-", "/"):
+            if name in ("+", "*", "-", "/", "%", "<", ">", "<=", ">=", "==", "!="):
                 lhs = self.parse_expression()
                 rhs = self.parse_expression()
                 self._pop(AzizTokenKind.PAREN_CLOSE)
@@ -127,4 +147,4 @@ class AzizParser(GenericParser[AzizTokenKind]):
         self.raise_error(f"unexpected token: {token.kind}", token)
 
     def _pop(self, kind: AzizTokenKind) -> AzizToken:  # verify type
-        return self._parse_token(kind, f"expected {kind}")
+        return self._parse_token(kind, f"expected {kind}")  # calls GenericParser._parse_token
