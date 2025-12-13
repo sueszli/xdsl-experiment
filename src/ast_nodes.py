@@ -58,8 +58,9 @@ class ModuleAST:
 def dump(node: object, indent: int = 0) -> str:
     if not isinstance(node, (ExprAST, PrototypeAST, FunctionAST, ModuleAST)):
         return repr(node)
-    
+
     ind = "  " * indent
+
     def fmt(v):
         if isinstance(v, list | tuple):
             return f"[\n{ind}\t" + f",\n{ind}\t".join(dump(x, indent + 1) for x in v) + f"\n{ind}]" if v else "[]"

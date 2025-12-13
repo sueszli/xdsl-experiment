@@ -6,12 +6,12 @@
 # ///
 
 import sys
-from pathlib import Path
 from parser import Parser
-from ast_nodes import dump
+from pathlib import Path
 
 from xdsl.interpreter import Interpreter
 
+from ast_nodes import dump
 from compiler import IRGen
 from interpreter import AzizFunctions
 
