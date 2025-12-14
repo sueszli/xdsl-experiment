@@ -17,6 +17,14 @@ uv run src/main.py examples/hello.aziz
 uv run src/main.py examples/if.aziz
 uv run src/main.py examples/rec.aziz
 uv run src/main.py examples/test.aziz
+
+
+
+???
+# python -m toy examples/interpret.toy --emit=scf --ir \
+# | xdsl-opt -p printf-to-llvm \
+# | mlir-opt --test-lower-to-llvm \
+# | mlir-cpu-runner --entry-point-result=void
 ```
 
 references:
