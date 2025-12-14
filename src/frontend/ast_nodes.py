@@ -31,7 +31,7 @@ class BinaryExprAST(ExprAST):
 
 
 @dataclass(slots=True)
-class CallExprAST(ExprAST):
+class CallExprAST(ExprAST):  # function call expression
     callee: str
     args: list[ExprAST]
 
