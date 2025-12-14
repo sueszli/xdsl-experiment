@@ -136,10 +136,7 @@ class FuncOp(IRDLOperation):
         /,
         private: bool = False,
     ):
-        attributes: dict[str, Attribute] = {
-            "sym_name": StringAttr(name),
-            "function_type": ftype,
-        }
+        attributes: dict[str, Attribute] = {"sym_name": StringAttr(name), "function_type": ftype}
         if not isinstance(region, Region):
             region = Region(Block(arg_types=ftype.inputs))
         if private:
@@ -176,9 +173,9 @@ class ReturnOp(IRDLOperation):
                 raise VerifyException("expected 1 return value for non-void function")
             if self.input.type != function_return_types[0]:
                 raise VerifyException("expected argument type to match function return type")
-        else:
-            if len(function_return_types) != 0:
-                raise VerifyException("expected 0 return values for void function")
+            return
+        if len(function_return_types) != 0:
+            raise VerifyException("expected 0 return values for void function")
 
 
 @irdl_op_definition
