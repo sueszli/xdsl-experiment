@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
+from dataclasses import dataclass
+
 from xdsl.builder import Builder, InsertPoint
 from xdsl.dialects.builtin import FunctionType, ModuleOp, i32
 from xdsl.ir import Block, Region, SSAValue
@@ -14,51 +17,54 @@ class IRGenError(Exception):
     pass
 
 
+@dataclass(init=False)
 class IRGen:
-    module: ModuleOp  # generated MLIR ModuleOp from AST
-    builder: Builder  # keeps current insertion point for next op
-    symbol_table: ScopedDict[str, SSAValue] | None = None  # variable name -> SSAValue for current scope. dropped on scope exit
-    declarations: dict[str, FuncOp]  # function name -> FuncOp (required for dedup on recursion)
+    module: ModuleOp  # the MLIR module being built
+    builder: Builder  # position to insert new ops
+    symbol_table: ScopedDict[str, SSAValue] | None = None  # var name -> SSAValue within current scope (dropped on exit)
 
     def __init__(self):
         self.module = ModuleOp([])
         self.builder = Builder(InsertPoint.at_end(self.module.body.blocks[0]))
-        self.declarations = {}
 
     def ir_gen_module(self, module_ast: ModuleAST) -> ModuleOp:
         functions = [op for op in module_ast.ops if isinstance(op, FunctionAST)]
 
-        # implicit main function
+        # implicit main function logic
         main_body = [op for op in module_ast.ops if isinstance(op, ExprAST)]
         if main_body:
             loc = main_body[0].loc
             main_func = FunctionAST(loc, PrototypeAST(loc, "main", []), tuple(main_body))
             functions.append(main_func)
 
+        # first pass: declare all functions to allow forward references
         for func_ast in functions:
             self._declare_function(func_ast)
-        for func_ast in functions:
-            self._define_function(func_ast)
 
-        # verify types
+        # second pass: generate code for each function
+        for func_ast in functions:
+            self._ir_gen_function(func_ast)
+
+        # verify types in module
         self.module.verify()
         return self.module
 
     def _declare_function(self, func_ast: FunctionAST):
-        # create FuncOp with correct name, but default i32 type and empty body for now
+        # create FuncOp with correct name and default types (i32), but empty body
         arg_types = [i32] * len(func_ast.proto.args)
         return_types = [i32]
-        func_type = FunctionType.from_lists(inputs=arg_types, outputs=return_types)
 
-        block = Block(arg_types=arg_types)
-        region = Region(block)
+        func_type = FunctionType.from_lists(inputs=arg_types, outputs=return_types)
+        region = Region(Block(arg_types=arg_types))
 
         func_op = FuncOp(func_ast.proto.name, func_type, region)
         self.module.body.blocks[0].add_op(func_op)
-        self.declarations[func_ast.proto.name] = func_op
 
-    def _define_function(self, func_ast: FunctionAST):
-        func_op = self.declarations[func_ast.proto.name]
+    def _ir_gen_function(self, func_ast: FunctionAST):
+        func_op = self._get_func_op(func_ast.proto.name)
+        if not func_op:
+            raise IRGenError(f"function {func_ast.proto.name} not declared")
+
         block = func_op.body.blocks[0]
 
         # save current builder and symbol table
@@ -71,18 +77,15 @@ class IRGen:
             self._declare(name, value)
 
         # generate body
-        last_val = None
-        for expr in func_ast.body:
-            last_val = self._ir_gen_expr(expr)
+        last_val = self._ir_gen_expr_list(func_ast.body)
 
         return_types = []
-        if not block.ops or not isinstance(block.last_op, ReturnOp):
-            # return 0 by default
+        if not (block.ops and isinstance(block.last_op, ReturnOp)):
+            # implicit return: type of last op or default to 0
             val = last_val if last_val is not None else self.builder.insert(ConstantOp(0)).res
             self.builder.insert(ReturnOp(val))
-            return_types = [val.type]
-        elif block.last_op.input:
-            # infer return type from last return value
+        if block.last_op.input:
+            # explicit return: type of last op
             return_types = [block.last_op.input.type]
 
         # update function signature if necessary
@@ -95,15 +98,27 @@ class IRGen:
         self.symbol_table = None
         self.builder = parent_builder
 
+    def _get_func_op(self, name: str) -> FuncOp | None:
+        # search for function in module
+        for op in self.module.body.blocks[0].ops:
+            if isinstance(op, FuncOp) and op.sym_name.data == name:
+                return op
+        return None
+
     def _declare(self, var: str, value: SSAValue) -> bool:
-        # declare a variable in the current scope, return success if not already declared
         assert self.symbol_table is not None
         if var in self.symbol_table:
             return False
         self.symbol_table[var] = value
         return True
 
-    def _ir_gen_expr(self, expr: ExprAST) -> SSAValue:
+    def _ir_gen_expr_list(self, exprs: Iterable[ExprAST]) -> SSAValue | None:
+        last_val = None
+        for expr in exprs:
+            last_val = self._ir_gen_expr(expr)
+        return last_val
+
+    def _ir_gen_expr(self, expr: ExprAST) -> SSAValue | None:
         if isinstance(expr, BinaryExprAST):
             return self._ir_gen_binary_expr(expr)
         if isinstance(expr, NumberExprAST):
@@ -114,7 +129,7 @@ class IRGen:
             return self._ir_gen_call_expr(expr)
         if isinstance(expr, PrintExprAST):
             self._ir_gen_print_expr(expr)
-            return None  # Print is void/statement-like in usage often, but expr in AST?
+            return None
         if isinstance(expr, IfExprAST):
             return self._ir_gen_if_expr(expr)
         if isinstance(expr, StringExprAST):
@@ -147,10 +162,14 @@ class IRGen:
     def _ir_gen_call_expr(self, expr: CallExprAST) -> SSAValue:
         args = [self._ir_gen_expr(arg) for arg in expr.args]
 
-        if expr.callee not in self.declarations:
+        callee_op = self._get_func_op(expr.callee)
+        if not callee_op:
             raise IRGenError(f"unknown function called: {expr.callee}")
-        callee_op = self.declarations[expr.callee]
-        ret_type = callee_op.function_type.outputs.data[0] # assume single result
+
+        if not callee_op.function_type.outputs.data:
+            raise IRGenError(f"function {expr.callee} returns void but used as expression")
+
+        ret_type = callee_op.function_type.outputs.data[0]
 
         return self.builder.insert(CallOp(expr.callee, args, [ret_type])).res[0]
 
@@ -160,7 +179,8 @@ class IRGen:
     def _ir_gen_if_expr(self, expr: IfExprAST) -> SSAValue:
         cond = self._ir_gen_expr(expr.cond)
 
-        if_op = IfOp(cond, i32)  # Defaulting to i32 result
+        # TODO: Infer result type correctly instead of defaulting to i32
+        if_op = IfOp(cond, i32)
         self.builder.insert(if_op)
 
         # Then
