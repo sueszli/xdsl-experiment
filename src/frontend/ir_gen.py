@@ -195,10 +195,6 @@ class IRGen:
         # restore builder
         self.builder = cursor
 
-        # check types
-        if then_val.type != else_val.type:
-            raise IRGenError(f"if expression branches have different types: {then_val.type} vs {else_val.type}")
-
         if_op = IfOp(cond, then_val.type, [then_region, else_region])
         self.builder.insert(if_op)
         return if_op.res
