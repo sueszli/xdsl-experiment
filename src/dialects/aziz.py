@@ -172,7 +172,7 @@ class ReturnOp(IRDLOperation):
             if len(function_return_types) != 1:
                 raise VerifyException("expected 1 return value for non-void function")
             if self.input.type != function_return_types[0]:
-                raise VerifyException("expected argument type to match function return type")
+                raise VerifyException("expected type to match actual function return type")
             return
         if len(function_return_types) != 0:
             raise VerifyException("expected 0 return values for void function")
@@ -188,7 +188,6 @@ class CallOp(IRDLOperation):
     def __init__(self, callee: str | SymbolRefAttr, operands: Sequence[SSAValue], return_types: Sequence[Attribute]):
         if isinstance(callee, str):
             callee = SymbolRefAttr(callee)
-
         super().__init__(operands=[operands], result_types=[return_types], attributes={"callee": callee})
 
 
