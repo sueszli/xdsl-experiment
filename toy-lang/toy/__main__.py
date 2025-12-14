@@ -130,3 +130,4 @@ def main(path: Path, emit: str, ir: bool, print_generic: bool):
 if __name__ == "__main__":
     args = parser.parse_args()
     main(args.source, args.emit, args.ir, args.print_generic)
+
