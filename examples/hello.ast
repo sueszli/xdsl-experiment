@@ -1,0 +1,25 @@
+ModuleAST(
+  ops=[
+    FunctionAST(
+      proto=PrototypeAST(
+        name='greet',
+        args=[
+          'name'
+        ]
+      ),
+      body=[
+        VariableExprAST(
+          name='name'
+        )
+      ]
+    ),
+    CallExprAST(
+      callee='greet',
+      args=[
+        StringExprAST(
+          val='Hello, World!'
+        )
+      ]
+    )
+  ]
+) 
