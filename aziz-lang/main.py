@@ -6,7 +6,6 @@
 # ///
 
 import argparse
-from io import StringIO
 from pathlib import Path
 
 from dialects import aziz
@@ -35,7 +34,7 @@ from xdsl.transforms.riscv_allocate_registers import RISCVAllocateRegistersPass
 from xdsl.transforms.riscv_scf_loop_range_folding import RiscvScfLoopRangeFoldingPass
 
 
-def context() -> Context:
+def transform(module_op: ModuleOp, target: str):
     ctx = Context()
     ctx.load_dialect(affine.Affine)
     ctx.load_dialect(arith.Arith)
@@ -47,10 +46,7 @@ def context() -> Context:
     ctx.load_dialect(riscv.RISCV)
     ctx.load_dialect(scf.Scf)
     ctx.load_dialect(aziz.Aziz)
-    return ctx
 
-
-def transform(ctx: Context, module_op: ModuleOp, *, target: str):
     CanonicalizePass().apply(ctx, module_op)
 
     if target == "aziz-opt":
@@ -137,7 +133,6 @@ if __name__ == "__main__":
     assert args.file.endswith(".aziz")
     src = Path(args.file).read_text()
 
-    ctx = context() if not args.ast else None
     module_ast = AzizParser(None, src).parse_module()  # source -> ast
     module_op = IRGen().ir_gen_module(module_ast)  # ast -> mlir
 
@@ -147,8 +142,8 @@ if __name__ == "__main__":
         interpreter.call_op("main", ())
         exit(0)
 
-    snapshot_before = module_op.clone()
-    transform(ctx, module_op, target=args.target)
+    original_module_op = module_op.clone()
+    transform(module_op, target=args.target)
 
     if args.ast:
         print(dump(module_ast))
@@ -157,7 +152,7 @@ if __name__ == "__main__":
     if args.mlir:
         gray = lambda s: f"\033[90m{s}\033[0m"
         print(gray(f"{'-' * 100}\nbefore transformation\n{'-' * 100}"))
-        print(snapshot_before)
+        print(original_module_op)
         print(gray(f"{'-' * 100}\nafter transformation\n{'-' * 100}"))
         print(module_op)
         exit(0)
