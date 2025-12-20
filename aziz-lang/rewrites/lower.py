@@ -100,34 +100,49 @@ class YieldOpLowering(RewritePattern):
 
 
 class StringConstantOpLowering(RewritePattern):
-    # constant strings -> llvm.mlir.global (compile-time, no allocation/deallocation)
+    # instance-level caches (reused across rewrites by PatternRewriteWalker)
+    _string_cache: dict[str, str] | None = None  # string content -> global name
+    _module: ModuleOp | None = None
+    _counter: int = 0
+
     @op_type_rewrite_pattern
     def match_and_rewrite(self, op: aziz.StringConstantOp, rewriter: PatternRewriter):
         val = op.value
         assert isinstance(val, StringAttr)
-        encoded_val = val.data.encode("utf-8") + b"\0"  # null-terminate
+        string_content = val.data
+        encoded_val = string_content.encode("utf-8") + b"\0"  # null-terminate
 
-        # llvm global type with string data
-        global_name = f"str_const_{id(op)}"
-        array_type = llvm.LLVMArrayType.from_size_and_type(len(encoded_val), i8)
+        # lazy init cache
+        if self._string_cache is None:
+            self._string_cache = {}
 
-        # requires a tensor/vector type, not LLVM array
-        vector_type = VectorType(i8, [len(encoded_val)])
-        initial_value = DenseIntOrFPElementsAttr.from_list(vector_type, list(encoded_val))
+        # deduplicate: reuse global for identical strings
+        if string_content not in self._string_cache:
+            # cache module reference once
+            if self._module is None:
+                module = op.parent_op()
+                while module and not isinstance(module, ModuleOp):
+                    module = module.parent_op()
+                assert isinstance(module, ModuleOp)
+                self._module = module
 
-        global_op = llvm.GlobalOp(array_type, global_name, linkage=llvm.LinkageAttr("internal"), constant=True, value=initial_value)
+            # stable, deterministic naming
+            global_name = f".str.{self._counter}"
+            self._counter += 1
+            self._string_cache[string_content] = global_name
 
-        # navigate to module and insert global at the top
-        module = op.parent_op()
-        while module and not isinstance(module, ModuleOp):
-            module = module.parent_op()
-        assert isinstance(module, ModuleOp)
-        rewriter.insert_op(global_op, InsertPoint.at_start(module.body.blocks[0]))
+            # create llvm.global
+            array_type = llvm.LLVMArrayType.from_size_and_type(len(encoded_val), i8)
+            vector_type = VectorType(i8, [len(encoded_val)])
+            initial_value = DenseIntOrFPElementsAttr.from_list(vector_type, list(encoded_val))
+            global_op = llvm.GlobalOp(array_type, global_name, linkage=llvm.LinkageAttr("internal"), constant=True, value=initial_value)
+            rewriter.insert_op(global_op, InsertPoint.at_start(self._module.body.blocks[0]))
+        else:
+            global_name = self._string_cache[string_content]
 
-        # get pointer to global
+        # addressof for every use (creates SSA value at use site)
         addr = llvm.AddressOfOp(global_name, llvm.LLVMPointerType())
         rewriter.insert_op(addr, InsertPoint.before(op))
-
         rewriter.replace_op(op, [], [addr.result])
 
 
