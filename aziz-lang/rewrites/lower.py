@@ -100,50 +100,47 @@ class YieldOpLowering(RewritePattern):
 
 
 class StringConstantOpLowering(RewritePattern):
-    # instance-level caches (reused across rewrites by PatternRewriteWalker)
-    _string_cache: dict[str, str] | None = None  # string content -> global name
-    _module: ModuleOp | None = None
-    _counter: int = 0
+    def __init__(self):
+        super().__init__()
+        self._string_cache: dict[str, str] = {}  # string content -> global name
+        self._counter: int = 0
 
     @op_type_rewrite_pattern
     def match_and_rewrite(self, op: aziz.StringConstantOp, rewriter: PatternRewriter):
         val = op.value
         assert isinstance(val, StringAttr)
         string_content = val.data
-        encoded_val = string_content.encode("utf-8") + b"\0"  # null-terminate
+        encoded_val = string_content.encode("utf-8") + b"\0"
 
-        # lazy init cache
-        if self._string_cache is None:
-            self._string_cache = {}
-
-        # deduplicate: reuse global for identical strings
+        # get or create llvm.global for the string
         if string_content not in self._string_cache:
-            # cache module reference once
-            if self._module is None:
-                module = op.parent_op()
-                while module and not isinstance(module, ModuleOp):
-                    module = module.parent_op()
-                assert isinstance(module, ModuleOp)
-                self._module = module
+            module = self._get_module(op)
+            self._create_global_for_string(string_content, encoded_val, module, rewriter)
 
-            # stable, deterministic naming
-            global_name = f".str.{self._counter}"
-            self._counter += 1
-            self._string_cache[string_content] = global_name
+        global_name = self._string_cache[string_content]
 
-            # create llvm.global
-            array_type = llvm.LLVMArrayType.from_size_and_type(len(encoded_val), i8)
-            vector_type = VectorType(i8, [len(encoded_val)])
-            initial_value = DenseIntOrFPElementsAttr.from_list(vector_type, list(encoded_val))
-            global_op = llvm.GlobalOp(array_type, global_name, linkage=llvm.LinkageAttr("internal"), constant=True, value=initial_value)
-            rewriter.insert_op(global_op, InsertPoint.at_start(self._module.body.blocks[0]))
-        else:
-            global_name = self._string_cache[string_content]
-
-        # addressof for every use (creates SSA value at use site)
+        # create addressof and replace
         addr = llvm.AddressOfOp(global_name, llvm.LLVMPointerType())
         rewriter.insert_op(addr, InsertPoint.before(op))
         rewriter.replace_op(op, [], [addr.result])
+
+    def _get_module(self, op: aziz.StringConstantOp) -> ModuleOp:
+        module = op.parent_op()
+        while module and not isinstance(module, ModuleOp):
+            module = module.parent_op()
+        assert isinstance(module, ModuleOp)
+        return module
+
+    def _create_global_for_string(self, string_content: str, encoded_val: bytes, module: ModuleOp, rewriter: PatternRewriter) -> None:
+        global_name = f".aziz.str.{self._counter}"
+        self._counter += 1
+        self._string_cache[string_content] = global_name
+
+        array_type = llvm.LLVMArrayType.from_size_and_type(len(encoded_val), i8)
+        vector_type = VectorType(i8, [len(encoded_val)])
+        initial_value = DenseIntOrFPElementsAttr.from_list(vector_type, list(encoded_val))  # requires tensor/vector type, not LLVM array type
+        global_op = llvm.GlobalOp(array_type, global_name, linkage=llvm.LinkageAttr("internal"), constant=True, value=initial_value)
+        rewriter.insert_op(global_op, InsertPoint.at_start(module.body.blocks[0]))
 
 
 class PrintOpLowering(RewritePattern):
