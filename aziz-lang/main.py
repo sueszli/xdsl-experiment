@@ -29,7 +29,7 @@ assert args.file.endswith(".aziz")
 src = Path(args.file).read_text()  # read source
 
 
-def load_dialects():
+def context():
     ctx = Context()
     # ctx.load_dialect(affine.Affine)
     # ctx.load_dialect(arith.Arith)
@@ -44,7 +44,7 @@ def load_dialects():
     return ctx
 
 
-ctx = load_dialects()
+ctx = context()
 
 module_ast = AzizParser(ctx, src).parse_module()  # source -> ast
 if args.ast:
