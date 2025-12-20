@@ -31,16 +31,16 @@ src = Path(args.file).read_text()  # read source
 
 def load_dialects():
     ctx = Context()
-    ctx.load_dialect(affine.Affine)
-    ctx.load_dialect(arith.Arith)
+    # ctx.load_dialect(affine.Affine)
+    # ctx.load_dialect(arith.Arith)
     ctx.load_dialect(Builtin)
-    ctx.load_dialect(func.Func)
-    ctx.load_dialect(memref.MemRef)
-    ctx.load_dialect(printf.Printf)
-    ctx.load_dialect(riscv_func.RISCV_Func)
-    ctx.load_dialect(riscv.RISCV)
-    ctx.load_dialect(scf.Scf)
-    ctx.load_dialect(aziz)
+    # ctx.load_dialect(func.Func)
+    # ctx.load_dialect(memref.MemRef)
+    # ctx.load_dialect(printf.Printf)
+    # ctx.load_dialect(riscv_func.RISCV_Func)
+    # ctx.load_dialect(riscv.RISCV)
+    # ctx.load_dialect(scf.Scf)
+    ctx.load_dialect(aziz.Aziz)
     return ctx
 
 
