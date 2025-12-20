@@ -132,17 +132,14 @@ def transform(
     raise ValueError(f"Unknown target option {target}")
 
 
-def main():
-    # group = parser.add_mutually_exclusive_group()
-    # group.add_argument("--ast", action="store_true", help="print IR")
-    # group.add_argument("--mlir", action="store_true", help="print MLIR")
-    # parser.add_argument("--interpret", action="store_true", help="Interpret the code")
-
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="aziz language")
     parser.add_argument("file", help="source file")
     parser.add_argument("--target", help="target dialect", default="riscv-lowered")
-    parser.add_argument("--interpret", action="store_true", help="interpret the code")
-    parser.add_argument("--print-op", action="store_true", help="print the operation after transformation")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--ast", action="store_true", help="print final ir")
+    group.add_argument("--mlir", action="store_true", help="print final mlir")
+    group.add_argument("--interpret", action="store_true", help="interpret the code")
     args = parser.parse_args()
     assert args.file.endswith(".aziz")
     src = Path(args.file).read_text()
@@ -150,24 +147,23 @@ def main():
     ctx = context()  # just used for lowering, not parsing or interpreting
     module_ast = AzizParser(ctx, src).parse_module()  # source -> ast
     module_op = IRGen().ir_gen_module(module_ast)  # ast -> mlir
+    transform(ctx, module_op, target=args.target)
+
+    if args.ast:
+        print(module_ast)
+        exit(0)
+
+    if args.mlir:
+        print(module_op)
+        exit(0)
 
     if args.interpret:
         interpreter = Interpreter(module_op)
         interpreter.register_implementations(AzizFunctions())
         interpreter.call_op("main", ())
-        return
-
-    transform(ctx, module_op, target=args.target)
-
-    if args.print_op:
-        print(module_op)
-        return
+        exit(0)
 
     io = StringIO()
     riscv.print_assembly(module_op, io)
     result = io.getvalue()
     print(result)
-
-
-if __name__ == "__main__":
-    main()
