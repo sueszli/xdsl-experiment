@@ -10,6 +10,7 @@ from io import StringIO
 from pathlib import Path
 
 from dialects import aziz
+from frontend.ast_nodes import dump
 from frontend.ir_gen import IRGen
 from frontend.parser import AzizParser
 from interpreter import AzizFunctions
@@ -144,16 +145,21 @@ if __name__ == "__main__":
     assert args.file.endswith(".aziz")
     src = Path(args.file).read_text()
 
-    ctx = context()  # just used for lowering, not parsing or interpreting
+    ctx = context() if not args.ast else None
     module_ast = AzizParser(ctx, src).parse_module()  # source -> ast
     module_op = IRGen().ir_gen_module(module_ast)  # ast -> mlir
-    transform(ctx, module_op, target=args.target)
+    snapshot = str(module_op)
+    transform(ctx, module_op, target=args.target)  # mlir -> mlir
 
     if args.ast:
-        print(module_ast)
+        print(dump(module_ast))
         exit(0)
 
     if args.mlir:
+        gray = lambda s: f"\033[90m{s}\033[0m"
+        print(gray(f"{'-' * 80}\nbefore transformation\n{'-' * 80}"))
+        print(snapshot)
+        print(gray(f"{'-' * 80}\nafter transformation\n{'-' * 80}"))
         print(module_op)
         exit(0)
 
