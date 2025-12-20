@@ -33,6 +33,9 @@ uv run aziz-lang/main.py examples/test.aziz --interpret
 
 fix optimize.py, fix main.py
 
+implement a super tiny script version, to experiment with optimizations for next steps
+
+
 
 references:
 

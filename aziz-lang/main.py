@@ -47,19 +47,10 @@ def transform(module_op: ModuleOp, target: str):
     ctx.load_dialect(scf.Scf)
     ctx.load_dialect(aziz.Aziz)
 
-    CanonicalizePass().apply(ctx, module_op)
-
-    if target == "aziz-opt":
-        return
-
     OptimizeAzizPass().apply(ctx, module_op)
+    LowerAzizPass().apply(ctx, module_op)  # aziz-dialect to generic mlir ops
 
-    if target == "aziz-inline":
-        return
-
-    # custom aziz dialect -> generic mlir dialects
-    LowerAzizPass().apply(ctx, module_op)
-    CanonicalizePass().apply(ctx, module_op)
+    CanonicalizePass().apply(ctx, module_op)  # standard canonicalization
     module_op.verify()
 
     if target == "aziz-lowered":
