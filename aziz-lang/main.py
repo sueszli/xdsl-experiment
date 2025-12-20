@@ -136,7 +136,7 @@ def transform(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="aziz language")
     parser.add_argument("file", help="source file")
-    parser.add_argument("--target", help="target dialect", default="riscv-lowered")
+    parser.add_argument("--target", help="target dialect", default="aziz-lowered")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--ast", action="store_true", help="print final ir")
     group.add_argument("--mlir", action="store_true", help="print final mlir")
@@ -148,8 +148,15 @@ if __name__ == "__main__":
     ctx = context() if not args.ast else None
     module_ast = AzizParser(ctx, src).parse_module()  # source -> ast
     module_op = IRGen().ir_gen_module(module_ast)  # ast -> mlir
-    snapshot = str(module_op)
-    transform(ctx, module_op, target=args.target)  # mlir -> mlir
+
+    if args.interpret:
+        interpreter = Interpreter(module_op)
+        interpreter.register_implementations(AzizFunctions())
+        interpreter.call_op("main", ())
+        exit(0)
+
+    snapshot_before = module_op.clone()
+    transform(ctx, module_op, target=args.target)  # mlir -> faster mlir
 
     if args.ast:
         print(dump(module_ast))
@@ -158,15 +165,9 @@ if __name__ == "__main__":
     if args.mlir:
         gray = lambda s: f"\033[90m{s}\033[0m"
         print(gray(f"{'-' * 100}\nbefore transformation\n{'-' * 100}"))
-        print(snapshot)
+        print(snapshot_before)
         print(gray(f"{'-' * 100}\nafter transformation\n{'-' * 100}"))
         print(module_op)
-        exit(0)
-
-    if args.interpret:
-        interpreter = Interpreter(module_op)
-        interpreter.register_implementations(AzizFunctions())
-        interpreter.call_op("main", ())
         exit(0)
 
     io = StringIO()

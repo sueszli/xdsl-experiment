@@ -19,6 +19,17 @@ class InlineFunctions(RewritePattern):
         if callee is None:
             return  # Cannot inline if function not found
 
+        # Check if callee is recursive (calls itself)
+        # If so, do not inline, to avoid infinite expansion
+        is_recursive = False
+        for child_op in callee.walk():
+            if isinstance(child_op, aziz.CallOp) and child_op.callee.string_value() == callee.sym_name.data:
+                is_recursive = True
+                break
+
+        if is_recursive:
+            return
+
         callable_interface = callee.get_trait(CallableOpInterface)
         if callable_interface is None:
             return

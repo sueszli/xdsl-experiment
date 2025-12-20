@@ -55,6 +55,10 @@ class AzizFunctions(InterpreterFunctions):
         else:
             return i.run_ssacfg_region(op.else_region, (), "else")
 
+    @impl(ops.CastIntToFloatOp)
+    def run_cast_int_to_float(self, i: Interpreter, op: ops.CastIntToFloatOp, args: tuple[Any, ...]):  # only called by ir_gen
+        return (float(args[0]),)
+
     @impl_callable(ops.FuncOp)
     def run_func(self, i: Interpreter, op: ops.FuncOp, args: tuple[Any, ...]):
         return i.run_ssacfg_region(op.body, args, op.attributes["sym_name"].data)

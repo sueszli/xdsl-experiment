@@ -236,6 +236,16 @@ class IfOp(IRDLOperation):
             raise VerifyException(f"if expression branches have different types: {then_yield.input.type} vs {else_yield.input.type}")
 
 
+@irdl_op_definition
+class CastIntToFloatOp(IRDLOperation):
+    name, traits = "aziz.cast_int_to_float", traits_def(Pure())
+    input = operand_def(IntegerType)
+    res = result_def(AnyFloat)
+
+    def __init__(self, input: SSAValue):
+        super().__init__(operands=[input], result_types=[f64])
+
+
 Aziz = Dialect(
     "aziz",
     [
@@ -251,6 +261,7 @@ Aziz = Dialect(
         CallOp,
         YieldOp,
         IfOp,
+        CastIntToFloatOp,
     ],
     [StringType],
 )
