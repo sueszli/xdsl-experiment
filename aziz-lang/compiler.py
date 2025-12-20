@@ -1,8 +1,5 @@
 from io import StringIO
 
-from dialects import aziz
-from frontend.ir_gen import IRGen
-from frontend.parser import AzizParser
 from rewrites.lower import LowerAzizPass
 from rewrites.optimize import OptimizeAzizPass
 from xdsl.backend.riscv.lowering.convert_arith_to_riscv import ConvertArithToRiscvPass
@@ -12,8 +9,8 @@ from xdsl.backend.riscv.lowering.convert_print_format_to_riscv_debug import Conv
 from xdsl.backend.riscv.lowering.convert_riscv_scf_to_riscv_cf import ConvertRiscvScfToRiscvCfPass
 from xdsl.backend.riscv.lowering.convert_scf_to_riscv_scf import ConvertScfToRiscvPass
 from xdsl.context import Context
-from xdsl.dialects import affine, arith, func, memref, printf, riscv, riscv_func, scf
-from xdsl.dialects.builtin import Builtin, ModuleOp
+from xdsl.dialects import riscv
+from xdsl.dialects.builtin import ModuleOp
 from xdsl.transforms.canonicalize import CanonicalizePass
 from xdsl.transforms.dead_code_elimination import DeadCodeElimination
 from xdsl.transforms.lower_affine import LowerAffinePass
@@ -21,29 +18,6 @@ from xdsl.transforms.lower_riscv_func import LowerRISCVFunc
 from xdsl.transforms.reconcile_unrealized_casts import ReconcileUnrealizedCastsPass
 from xdsl.transforms.riscv_allocate_registers import RISCVAllocateRegistersPass
 from xdsl.transforms.riscv_scf_loop_range_folding import RiscvScfLoopRangeFoldingPass
-
-
-def context() -> Context:
-    ctx = Context()
-    ctx.load_dialect(affine.Affine)
-    ctx.load_dialect(arith.Arith)
-    ctx.load_dialect(Builtin)
-    ctx.load_dialect(func.Func)
-    ctx.load_dialect(memref.MemRef)
-    ctx.load_dialect(printf.Printf)
-    ctx.load_dialect(riscv_func.RISCV_Func)
-    ctx.load_dialect(riscv.RISCV)
-    ctx.load_dialect(scf.Scf)
-    ctx.load_dialect(aziz.Aziz)
-    return ctx
-
-
-def parse_aziz(program: str, ctx: Context | None = None) -> ModuleOp:
-    if ctx is None:
-        ctx = context()
-    module_ast = AzizParser(ctx, program).parse_module()
-    module_op = IRGen().ir_gen_module(module_ast)
-    return module_op
 
 
 def transform(
