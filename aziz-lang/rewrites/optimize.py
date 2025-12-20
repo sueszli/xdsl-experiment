@@ -8,6 +8,24 @@ from xdsl.traits import CallableOpInterface, SymbolTable
 from xdsl.transforms.dead_code_elimination import dce
 
 
+class RemoveUnusedPrivateFunctions(RewritePattern):
+    _used_funcs: set[str] | None = None
+
+    @op_type_rewrite_pattern
+    def match_and_rewrite(self, op: aziz.FuncOp, rewriter: PatternRewriter):
+        if self._is_unused(op):
+            rewriter.erase_op(op)
+
+    def _is_unused(self, op: aziz.FuncOp) -> bool:
+        if op.sym_visibility != StringAttr("private"):
+            return False
+        if self._used_funcs is None:
+            module = op.parent_op()
+            assert isinstance(module, ModuleOp)
+            self._used_funcs = {op.callee.string_value() for op in module.walk() if isinstance(op, aziz.CallOp)}
+        return op.sym_name.data not in self._used_func
+
+
 class InlineFunctions(RewritePattern):
     @op_type_rewrite_pattern
     def match_and_rewrite(self, op: aziz.CallOp, rewriter: PatternRewriter):
@@ -72,28 +90,10 @@ class InlineFunctions(RewritePattern):
             pass
 
 
-class RemoveUnusedPrivateFunctions(RewritePattern):
-    _used_funcs: set[str] | None = None
-
-    @op_type_rewrite_pattern
-    def match_and_rewrite(self, op: aziz.FuncOp, rewriter: PatternRewriter):
-        if self._is_unused(op):
-            rewriter.erase_op(op)
-
-    def _is_unused(self, op: aziz.FuncOp) -> bool:
-        if op.sym_visibility != StringAttr("private"):
-            return False
-        if self._used_funcs is None:
-            module = op.parent_op()
-            assert isinstance(module, ModuleOp)
-            self._used_funcs = {op.callee.string_value() for op in module.walk() if isinstance(op, aziz.CallOp)}
-        return op.sym_name.data not in self._used_func
-
-
 class OptimizeAzizPass(ModulePass):
     name = "optimize-aziz"
 
     def apply(self, _: Context, op: ModuleOp) -> None:
-        PatternRewriteWalker(InlineFunctions()).rewrite_module(op)
         PatternRewriteWalker(RemoveUnusedPrivateFunctions()).rewrite_module(op)
+        PatternRewriteWalker(InlineFunctions()).rewrite_module(op)
         dce(op)
