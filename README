@@ -15,6 +15,8 @@ usage:
 ```
 find examples -name "*.aziz"
 
+uv run aziz-lang/main.py examples/optimize.aziz --target=aziz-lowered --print-op
+
 uv run aziz-lang/main.py examples/hello.aziz
 uv run aziz-lang/main.py examples/rec.aziz
 uv run aziz-lang/main.py examples/if.aziz
