@@ -47,7 +47,7 @@ def transform(module_op: ModuleOp, target: str):
     ctx.load_dialect(scf.Scf)
     ctx.load_dialect(aziz.Aziz)
 
-    OptimizeAzizPass().apply(ctx, module_op)
+    OptimizeAzizPass().apply(ctx, module_op)  # optimize (e.g. drop unused, inline functions)
     LowerAzizPass().apply(ctx, module_op)  # aziz-dialect to generic mlir ops
     CanonicalizePass().apply(ctx, module_op)  # standard canonicalization
     module_op.verify()
