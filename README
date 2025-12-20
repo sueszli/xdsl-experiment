@@ -15,13 +15,6 @@ usage:
 ```
 find examples -name "*.aziz"
 
-uv run aziz-lang/main.py examples/hello.aziz --ast
-uv run aziz-lang/main.py examples/if.aziz --ast
-uv run aziz-lang/main.py examples/optimize.aziz --ast
-uv run aziz-lang/main.py examples/rec.aziz --ast
-uv run aziz-lang/main.py examples/string.aziz --ast
-uv run aziz-lang/main.py examples/test.aziz --ast
-
 uv run aziz-lang/main.py examples/hello.aziz --mlir
 uv run aziz-lang/main.py examples/if.aziz --mlir
 uv run aziz-lang/main.py examples/optimize.aziz --mlir

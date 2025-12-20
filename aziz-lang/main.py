@@ -50,7 +50,7 @@ def context() -> Context:
     return ctx
 
 
-def transform(ctx: Context, module_op: ModuleOp, *, target: str = "riscv-assembly"):
+def transform(ctx: Context, module_op: ModuleOp, *, target: str):
     if target == "aziz":
         return
 
@@ -131,7 +131,7 @@ def transform(ctx: Context, module_op: ModuleOp, *, target: str = "riscv-assembl
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="aziz language")
     parser.add_argument("file", help="source file")
-    parser.add_argument("--target", help="target dialect", default="riscv-assembly")  # default="aziz-lowered"
+    parser.add_argument("--target", help="target dialect", default="aziz-lowered")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--ast", action="store_true", help="print final ir")
     group.add_argument("--mlir", action="store_true", help="print final mlir")
