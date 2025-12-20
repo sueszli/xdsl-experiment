@@ -16,10 +16,10 @@ usage:
 find examples -name "*.aziz"
 
 
-uv run aziz-lang/main.py examples/hello.aziz --target=aziz-lowered --mlir
+uv run aziz-lang/main.py examples/hello.aziz --target=aziz-lowered --mlir # broken
 uv run aziz-lang/main.py examples/if.aziz --target=aziz-lowered --mlir
 uv run aziz-lang/main.py examples/optimize.aziz --target=aziz-lowered --mlir
-uv run aziz-lang/main.py examples/rec.aziz --target=aziz-lowered --mlir
+uv run aziz-lang/main.py examples/rec.aziz --target=aziz-lowered --mlir # broken
 uv run aziz-lang/main.py examples/test.aziz --target=aziz-lowered --mlir
 ```
 
