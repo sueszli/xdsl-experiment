@@ -23,7 +23,7 @@ from xdsl.backend.riscv.lowering.convert_print_format_to_riscv_debug import Conv
 from xdsl.backend.riscv.lowering.convert_riscv_scf_to_riscv_cf import ConvertRiscvScfToRiscvCfPass
 from xdsl.backend.riscv.lowering.convert_scf_to_riscv_scf import ConvertScfToRiscvPass
 from xdsl.context import Context
-from xdsl.dialects import affine, arith, func, memref, printf, riscv, riscv_func, scf
+from xdsl.dialects import affine, arith, func, printf, riscv, riscv_func, scf
 from xdsl.dialects.builtin import Builtin, ModuleOp
 from xdsl.interpreter import Interpreter
 from xdsl.transforms.canonicalize import CanonicalizePass
@@ -41,28 +41,27 @@ def transform(module_op: ModuleOp, target: str):
     ctx.load_dialect(arith.Arith)
     ctx.load_dialect(Builtin)
     ctx.load_dialect(func.Func)
-    ctx.load_dialect(memref.MemRef)
     ctx.load_dialect(printf.Printf)
     ctx.load_dialect(riscv_func.RISCV_Func)
     ctx.load_dialect(riscv.RISCV)
     ctx.load_dialect(scf.Scf)
     ctx.load_dialect(aziz.Aziz)
 
-    OptimizeAzizPass().apply(ctx, module_op)  # optimize (e.g. drop unused, inline functions)
-    LowerAzizPass().apply(ctx, module_op)  # aziz-dialect to generic mlir ops
-    CanonicalizePass().apply(ctx, module_op)  # standard canonicalization
+    # optimize (e.g. drop unused, inline functions)
+    OptimizeAzizPass().apply(ctx, module_op)
+
+    # lower to arith, func, llvm, printf, scf
+    LowerAzizPass().apply(ctx, module_op)
+    LowerAffinePass().apply(ctx, module_op)
+
+    # standard canonicalization
+    CanonicalizePass().apply(ctx, module_op)
     module_op.verify()
 
     if target == "aziz-lowered":
         return
 
-    # Lowering generic dialects to RISC-V specific dialects
-
-    LowerAffinePass().apply(ctx, module_op)
-
-    if target == "scf":
-        return
-
+    # lower to riscv dialects
     ConvertFuncToRiscvFuncPass().apply(ctx, module_op)
     ConvertMemRefToRiscvPass().apply(ctx, module_op)
     ConvertPrintFormatToRiscvDebugPass().apply(ctx, module_op)
@@ -76,7 +75,7 @@ def transform(module_op: ModuleOp, target: str):
     if target == "riscv":
         return
 
-    # Perform optimizations that don't depend on register allocation
+    # optimizations that don't depend on register allocation
     # e.g. constant folding
     CanonicalizePass().apply(ctx, module_op)
     RiscvScfLoopRangeFoldingPass().apply(ctx, module_op)
@@ -94,7 +93,7 @@ def transform(module_op: ModuleOp, target: str):
     if target == "riscv-regalloc":
         return
 
-    # Perform optimizations that depend on register allocation
+    # optimizations that depend on register allocation
     # e.g. redundant moves
     CanonicalizePass().apply(ctx, module_op)
 
