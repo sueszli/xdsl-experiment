@@ -15,9 +15,9 @@ builtin.module {
     "aziz.return"(%8) : (i32) -> ()
   }) {sym_name = "multiply_floats", function_type = (i32, i32) -> i32} : () -> ()
   "aziz.func"() ({
-    %9 = "aziz.string_constant"() {value = "hello"} : () -> #aziz.string
-    "aziz.return"(%9) : (#aziz.string) -> ()
-  }) {sym_name = "get_msg", function_type = () -> #aziz.string} : () -> ()
+    %9 = "aziz.string_constant"() {value = "hello"} : () -> !aziz.string
+    "aziz.return"(%9) : (!aziz.string) -> ()
+  }) {sym_name = "get_msg", function_type = () -> !aziz.string} : () -> ()
   "aziz.func"() ({
     %10 = "aziz.constant"() {value = 10 : i32} : () -> i32
     %11 = "aziz.constant"() {value = 20 : i32} : () -> i32
@@ -39,14 +39,14 @@ builtin.module {
     %23 = "aziz.constant"() {value = 2.500000e+00 : f64} : () -> f64
     %24 = "aziz.add"(%22, %23) : (f64, f64) -> f64
     "aziz.print"(%24) : (f64) -> ()
-    %25 = "aziz.string_constant"() {value = "String with (parens) inside"} : () -> #aziz.string
-    "aziz.print"(%25) : (#aziz.string) -> ()
-    %26 = "aziz.string_constant"() {value = "(more"} : () -> #aziz.string
-    "aziz.print"(%26) : (#aziz.string) -> ()
-    %27 = "aziz.string_constant"() {value = "data)"} : () -> #aziz.string
-    "aziz.print"(%27) : (#aziz.string) -> ()
-    %28 = "aziz.call"() {callee = @get_msg} : () -> #aziz.string
-    "aziz.print"(%28) : (#aziz.string) -> ()
+    %25 = "aziz.string_constant"() {value = "String with (parens) inside"} : () -> !aziz.string
+    "aziz.print"(%25) : (!aziz.string) -> ()
+    %26 = "aziz.string_constant"() {value = "(more"} : () -> !aziz.string
+    "aziz.print"(%26) : (!aziz.string) -> ()
+    %27 = "aziz.string_constant"() {value = "data)"} : () -> !aziz.string
+    "aziz.print"(%27) : (!aziz.string) -> ()
+    %28 = "aziz.call"() {callee = @get_msg} : () -> !aziz.string
+    "aziz.print"(%28) : (!aziz.string) -> ()
     %29 = "aziz.constant"() {value = 0 : i32} : () -> i32
     "aziz.return"(%29) : (i32) -> ()
   }) {sym_name = "main", function_type = () -> i32} : () -> ()

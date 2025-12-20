@@ -1,8 +1,8 @@
 builtin.module {
   "aziz.func"() ({
-    %0 = "aziz.string_constant"() {value = "hello world!"} : () -> #aziz.string
-    "aziz.return"(%0) : (#aziz.string) -> ()
-  }) {sym_name = "get_msg", function_type = () -> #aziz.string} : () -> ()
+    %0 = "aziz.string_constant"() {value = "hello world!"} : () -> !aziz.string
+    "aziz.return"(%0) : (!aziz.string) -> ()
+  }) {sym_name = "get_msg", function_type = () -> !aziz.string} : () -> ()
   "aziz.func"() ({
   ^bb0(%1 : i32):
     %2 = "aziz.constant"() {value = 1 : i32} : () -> i32
