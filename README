@@ -15,10 +15,10 @@ usage:
 ```
 find examples -name "*.aziz"
 
-uv run src/main.py examples/hello.aziz
-uv run src/main.py examples/rec.aziz
-uv run src/main.py examples/if.aziz
-uv run src/main.py examples/test.aziz
+uv run aziz-lang/main.py examples/hello.aziz
+uv run aziz-lang/main.py examples/rec.aziz
+uv run aziz-lang/main.py examples/if.aziz
+uv run aziz-lang/main.py examples/test.aziz
 ```
 
 references:

@@ -1,8 +1,7 @@
 from typing import Any
 
-from xdsl.interpreter import Interpreter, InterpreterFunctions, ReturnedValues, impl, impl_callable, impl_terminator, register_impls
-
 from dialects import aziz as ops
+from xdsl.interpreter import Interpreter, InterpreterFunctions, ReturnedValues, impl, impl_callable, impl_terminator, register_impls
 
 
 @register_impls

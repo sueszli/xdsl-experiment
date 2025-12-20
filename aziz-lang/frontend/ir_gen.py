@@ -1,12 +1,11 @@
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+from dialects.aziz import AddOp, CallOp, ConstantOp, FuncOp, IfOp, LessThanEqualOp, MulOp, PrintOp, ReturnOp, StringConstantOp, SubOp, YieldOp
 from xdsl.builder import Builder, InsertPoint
 from xdsl.dialects.builtin import FunctionType, ModuleOp, i32
 from xdsl.ir import Block, Region, SSAValue
 from xdsl.utils.scoped_dict import ScopedDict
-
-from dialects.aziz import AddOp, CallOp, ConstantOp, FuncOp, IfOp, LessThanEqualOp, MulOp, PrintOp, ReturnOp, StringConstantOp, SubOp, YieldOp
 
 from .ast_nodes import BinaryExprAST, CallExprAST, ExprAST, FunctionAST, IfExprAST, ModuleAST, NumberExprAST, PrintExprAST, PrototypeAST, StringExprAST, VariableExprAST
 

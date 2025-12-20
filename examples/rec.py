@@ -7,11 +7,10 @@
 # ]
 # ///
 
+from src.dialects import aziz
 from xdsl.builder import Builder, ImplicitBuilder
 from xdsl.dialects.builtin import FunctionType, ModuleOp, i32
 from xdsl.ir import Block, Region, SSAValue
-
-from src.dialects import aziz
 
 
 @ModuleOp
