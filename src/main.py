@@ -18,9 +18,9 @@ from interpreter import AzizFunctions
 
 parser = argparse.ArgumentParser(description="aziz language")
 parser.add_argument("file", help="source file")
-xor = parser.add_mutually_exclusive_group()
-xor.add_argument("--ast", action="store_true", help="print IR")
-xor.add_argument("--mlir", action="store_true", help="print MLIR")
+group = parser.add_mutually_exclusive_group()
+group.add_argument("--ast", action="store_true", help="print IR")
+group.add_argument("--mlir", action="store_true", help="print MLIR")
 parser.add_argument("--interpret", action="store_true", help="Interpret the code")
 args = parser.parse_args()
 
