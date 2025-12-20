@@ -13,6 +13,8 @@
 usage:
 
 ```
+find examples -name "*.aziz"
+
 uv run src/main.py examples/hello.aziz
 uv run src/main.py examples/rec.aziz
 uv run src/main.py examples/if.aziz
@@ -23,14 +25,3 @@ references:
 
 - https://mlir.llvm.org/docs/Tutorials/Toy/
 - https://github.com/xdslproject/xdsl/tree/main/docs/Toy
-
-
-
-
-TODO:
-
-; runnning mlir
-
-; code = compile(program)
-; emulate_riscv(code)
-; optimize
