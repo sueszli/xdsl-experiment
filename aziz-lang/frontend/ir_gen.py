@@ -54,7 +54,7 @@ class IRGen:
         func_type = FunctionType.from_lists(inputs=arg_types, outputs=return_types)
         region = Region(Block(arg_types=arg_types))
 
-        is_private = func_ast.proto.name != "main"
+        is_private = func_ast.proto.name != "main"  # for dead code elimination DCE to work
         func_op = FuncOp(func_ast.proto.name, func_type, region, private=is_private)
         self.module.body.blocks[0].add_op(func_op)
 

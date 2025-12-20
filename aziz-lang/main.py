@@ -157,9 +157,9 @@ if __name__ == "__main__":
 
     if args.mlir:
         gray = lambda s: f"\033[90m{s}\033[0m"
-        print(gray(f"{'-' * 80}\nbefore transformation\n{'-' * 80}"))
+        print(gray(f"{'-' * 100}\nbefore transformation\n{'-' * 100}"))
         print(snapshot)
-        print(gray(f"{'-' * 80}\nafter transformation\n{'-' * 80}"))
+        print(gray(f"{'-' * 100}\nafter transformation\n{'-' * 100}"))
         print(module_op)
         exit(0)
 
