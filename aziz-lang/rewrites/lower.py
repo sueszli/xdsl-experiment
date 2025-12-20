@@ -43,6 +43,12 @@ class LessThanEqualOpLowering(RewritePattern):
             rewriter.replace_op(op, arith.CmpiOp(op.lhs, op.rhs, "sle"))  # signed less equal
 
 
+class CastIntToFloatOpLowering(RewritePattern):
+    @op_type_rewrite_pattern
+    def match_and_rewrite(self, op: aziz.CastIntToFloatOp, rewriter: PatternRewriter):
+        rewriter.replace_op(op, arith.SIToFPOp(op.input, op.res.type))
+
+
 class ConstantOpLowering(RewritePattern):
     @op_type_rewrite_pattern
     def match_and_rewrite(self, op: aziz.ConstantOp, rewriter: PatternRewriter):
@@ -163,6 +169,7 @@ class LowerAzizPass(ModulePass):
                     SubOpLowering(),
                     MulOpLowering(),
                     LessThanEqualOpLowering(),
+                    CastIntToFloatOpLowering(),
                     ConstantOpLowering(),
                     ReturnOpLowering(),
                     FuncOpLowering(),
