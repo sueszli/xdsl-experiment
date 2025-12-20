@@ -4,8 +4,8 @@
 ⠀⠀⠀⠀⠀⠀⢸⣿⣿⣿⣧⠀⠀     aziz programming language.
 ⠀⠀⠀⠀⠀⠀⣼⣿⣿⣿⣿⣆⠀
 ⠀⠀⠀⠀⠀⣼⣿⣿⣿⣿⣿⣿⡀     a subset of common lisp
-⠀⠀⠀⠀⣴⣿⣿⣿⠟⣿⣿⣿⣷     implemented with xDSL.
-⠀⠀⠀⣰⣿⣿⣿⡏⠀⠸⣿⣿⣿⣇ 
+⠀⠀⠀⠀⣴⣿⣿⣿⠟⣿⣿⣿⣷     implemented using xDSL/MLIR
+⠀⠀⠀⣰⣿⣿⣿⡏⠀⠸⣿⣿⣿⣇    emulated on the ARM64 architecture
 ⠀⠀⢠⣿⣿⣿⡟⠀⠀⠀⢻⣿⣿⣿⡆
 ⠀⢠⣿⣿⣿⡿⠀⠀⠀⠀⠀⢿⣿⣿⣷⣤⡄
 ⢀⣾⣿⣿⣿⠁⠀⠀⠀⠀⠀⠈⠿⣿⣿⣿⡇

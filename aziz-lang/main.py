@@ -6,6 +6,7 @@
 # ///
 
 import argparse
+import platform
 from pathlib import Path
 
 from dialects import aziz
@@ -122,6 +123,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
     assert args.file.endswith(".aziz")
     src = Path(args.file).read_text()
+
+    print(f"architecture: {platform.machine()}")
 
     module_ast = AzizParser(None, src).parse_module()  # source -> ast
     module_op = IRGen().ir_gen_module(module_ast)  # ast -> mlir

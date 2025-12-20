@@ -2,7 +2,6 @@ FROM --platform=linux/arm64 ghcr.io/astral-sh/uv:debian
 
 # RUN apt-get update && apt-get install -y --no-install-recommends \
 #     ca-certificates \
-#     python3 python3-pip \
 #     && rm -rf /var/lib/apt/lists/*
 
 # COPY requirements.txt /workspace/requirements.txt
