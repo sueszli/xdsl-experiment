@@ -138,7 +138,7 @@ if __name__ == "__main__":
     src = Path(args.file).read_text()
 
     ctx = context() if not args.ast else None
-    module_ast = AzizParser(ctx, src).parse_module()  # source -> ast
+    module_ast = AzizParser(None, src).parse_module()  # source -> ast
     module_op = IRGen().ir_gen_module(module_ast)  # ast -> mlir
 
     if args.interpret:
@@ -162,7 +162,7 @@ if __name__ == "__main__":
         print(module_op)
         exit(0)
 
-    io = StringIO()
-    riscv.print_assembly(module_op, io)
-    result = io.getvalue()
-    print(result)
+    # io = StringIO()
+    # riscv.print_assembly(module_op, io)
+    # result = io.getvalue()
+    # print(result)
