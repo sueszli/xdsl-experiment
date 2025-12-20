@@ -18,6 +18,7 @@ from xdsl.dialects import affine, arith, func, memref, printf, riscv, riscv_func
 from xdsl.dialects.builtin import Builtin
 from xdsl.interpreter import Interpreter
 
+
 parser = argparse.ArgumentParser(description="aziz language")
 parser.add_argument("file", help="source file")
 group = parser.add_mutually_exclusive_group()
@@ -26,7 +27,7 @@ group.add_argument("--mlir", action="store_true", help="print MLIR")
 parser.add_argument("--interpret", action="store_true", help="Interpret the code")
 args = parser.parse_args()
 assert args.file.endswith(".aziz")
-src = Path(args.file).read_text()  # read source
+src = Path(args.file).read_text()
 
 
 def context():
@@ -44,6 +45,7 @@ def context():
     return ctx
 
 
+# ctx not necessary if only using interpreter
 ctx = context()
 
 module_ast = AzizParser(ctx, src).parse_module()  # source -> ast
