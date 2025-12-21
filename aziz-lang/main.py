@@ -47,26 +47,28 @@ def transform(module_op: ModuleOp, target: str):
     ctx.load_dialect(scf.Scf)
     ctx.load_dialect(aziz.Aziz)
 
-    # optimize (e.g. drop unused, inline functions)
+    # optimize (drop unused, inline functions)
     OptimizeAzizPass().apply(ctx, module_op)
 
     # lower to arith, func, llvm, printf, scf
     LowerAzizPass().apply(ctx, module_op)
     LowerAffinePass().apply(ctx, module_op)
 
-    # standard canonicalization
+    # looks up the canonicalization patterns for each op
     CanonicalizePass().apply(ctx, module_op)
     module_op.verify()
 
     if target == "aziz-lowered":
         return
 
-    # lower to riscv dialects
+    # lower func, memref, printf, arith, scf to riscv dialects
     ConvertFuncToRiscvFuncPass().apply(ctx, module_op)
     ConvertMemRefToRiscvPass().apply(ctx, module_op)
     ConvertPrintFormatToRiscvDebugPass().apply(ctx, module_op)
     ConvertArithToRiscvPass().apply(ctx, module_op)
     ConvertScfToRiscvPass().apply(ctx, module_op)
+
+    # remove unused ops and resolve temporary cast operations
     DeadCodeElimination().apply(ctx, module_op)
     ReconcileUnrealizedCastsPass().apply(ctx, module_op)
     module_op.verify()
@@ -105,7 +107,7 @@ def transform(module_op: ModuleOp, target: str):
     if target == "riscv-lowered":
         return
 
-    raise ValueError(f"Unknown target option {target}")
+    assert False, f"unknown target: {target}"
 
 
 if __name__ == "__main__":
