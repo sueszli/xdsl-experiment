@@ -95,10 +95,10 @@ def run_riscv(asm_code: str, entry_symbol: str = "main") -> dict[str, any]:
 
         emulator = Uc(UC_ARCH_RISCV, UC_MODE_RISCV64)
 
-        # enable floating-point unit by setting mstatus.FS field
-        # FS field is bits 13-14 of mstatus, set to 0b11 (Dirty) to enable FPU
+        # enable fpu: set mstatus.fs (bits 13-14) to 0b11="dirty" state
+        # without this, floating-point instructions like fld/fsd cause cpu exceptions
         mstatus = emulator.reg_read(UC_RISCV_REG_MSTATUS)
-        mstatus |= 0b11 << 13  # Set FS=Dirty to enable FPU
+        mstatus |= 0b11 << 13
         emulator.reg_write(UC_RISCV_REG_MSTATUS, mstatus)
 
         emulator.mem_map(MEMORY_BASE_ADDR, MEMORY_SIZE_BYTES)
@@ -107,20 +107,20 @@ def run_riscv(asm_code: str, entry_symbol: str = "main") -> dict[str, any]:
         output_buffer = []
         _create_execution_hooks(emulator, output_buffer)
 
-        # initialize stack pointer to top of memory region minus some space for stack growth
-        # ensure 16-byte alignment as required by RISC-V ABI
+        # set stack pointer to top of memory with 16-byte alignment (required by risc-v abi)
+        # subtract 16 to leave room for stack growth, then mask lower 4 bits to align
         stack_top = (MEMORY_BASE_ADDR + MEMORY_SIZE_BYTES - 16) & ~0xF
         emulator.reg_write(UC_RISCV_REG_SP, stack_top)
 
-        # use 0 as end address to run until stopped by hooks or instruction count
-        # see: https://github.com/unicorn-engine/unicorn/issues/1972
+        # start emulation from entry point until hooks stop it or max instruction count reached
+        # end_addr=0 means run indefinitely (until stopped by hooks or count limit)
         try:
             emulator.emu_start(entry_addr, 0, count=MAX_INSTRUCTION_COUNT)
         except Exception as e:
-            print(f"[ERROR] emulation exception: {e}")
+            print(f"[ERROR] Emulation exception: {e}")
             print(f"[ERROR] SP = 0x{emulator.reg_read(UC_RISCV_REG_SP):x}")
-            print(f"[ERROR] entry addr = 0x{entry_addr:x}")
-            raise e
+            print(f"[ERROR] Entry addr = 0x{entry_addr:x}")
+            raise
 
         reg_map = [("t0", UC_RISCV_REG_T0), ("t1", UC_RISCV_REG_T1), ("t2", UC_RISCV_REG_T2), ("a0", UC_RISCV_REG_A0), ("a1", UC_RISCV_REG_A1), ("a7", UC_RISCV_REG_A7)]
         return {"output": "".join(output_buffer), "regs": {name: emulator.reg_read(reg_id) for name, reg_id in reg_map}}

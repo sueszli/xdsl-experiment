@@ -67,6 +67,7 @@ def transform(module_op: ModuleOp, target: str):
     # lower func, memref, printf, arith, scf to riscv dialects
     LowerSelectPass().apply(ctx, module_op)  # convert arith.select to riscv (not supported by xdsl)
     RemoveUnprintableOpsPass().apply(ctx, module_op)  # todo: bring back printf in assembly
+
     ConvertFuncToRiscvFuncPass().apply(ctx, module_op)
     ConvertMemRefToRiscvPass().apply(ctx, module_op)
     ConvertArithToRiscvPass().apply(ctx, module_op)
