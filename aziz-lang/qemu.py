@@ -100,28 +100,7 @@ def run_riscv(asm_code: str, entry_symbol: str = "main") -> dict[str, any]:
 
         output_buffer = []
         _create_execution_hooks(emulator, output_buffer)
-        try:
-            emulator.emu_start(entry_addr, 0xFFFFFFFF, count=MAX_INSTRUCTION_COUNT)
-        except:
-            pass
+        emulator.emu_start(entry_addr, 0xFFFFFFFF, count=MAX_INSTRUCTION_COUNT)
 
         reg_map = [("t0", UC_RISCV_REG_T0), ("t1", UC_RISCV_REG_T1), ("t2", UC_RISCV_REG_T2), ("a0", UC_RISCV_REG_A0), ("a1", UC_RISCV_REG_A1), ("a7", UC_RISCV_REG_A7)]
         return {"output": "".join(output_buffer), "regs": {name: emulator.reg_read(reg_id) for name, reg_id in reg_map}}
-
-
-def map_virtual_to_physical_registers(asm: str) -> str:
-    # risc-v has t0-t6 (7 temps) and s0-s11 (12 saved regs) = 19 total physical registers
-
-    virtual_regs = set(re.findall(r"\bj_\d+\b", asm))
-    physical_regs = [f"t{i}" for i in range(7)] + [f"s{i}" for i in range(12)]
-
-    if len(virtual_regs) > len(physical_regs):
-        raise RuntimeError(f"too many virtual registers ({len(virtual_regs)}) for available physical registers ({len(physical_regs)})")
-
-    virtual_list = sorted(virtual_regs, key=lambda x: int(x.split("_")[1]))
-    reg_map = {v: physical_regs[i] for i, v in enumerate(virtual_list)}
-
-    for virt, phys in reg_map.items():
-        asm = re.sub(rf"\b{virt}\b", phys, asm)
-
-    return asm

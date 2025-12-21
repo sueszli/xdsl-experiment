@@ -1,9 +1,12 @@
+import re
 from xdsl.context import Context
 from xdsl.dialects import arith, llvm, printf, riscv
-from xdsl.dialects.builtin import ModuleOp, UnrealizedConversionCastOp
+from xdsl.dialects.builtin import ModuleOp, UnrealizedConversionCastOp, StringAttr, IntegerAttr
 from xdsl.passes import ModulePass
 from xdsl.pattern_rewriter import GreedyRewritePatternApplier, PatternRewriter, PatternRewriteWalker, RewritePattern, op_type_rewrite_pattern
 from xdsl.rewriter import InsertPoint
+from xdsl.ir import Attribute
+from xdsl.irdl import irdl_op_definition, attr_def, base
 
 #
 # branching lowering
@@ -73,66 +76,72 @@ class LowerSelectPass(ModulePass):
 
 
 #
-# printf lowering
+# global data lowering
 #
 
 
-class LLVMGlobalToDataSectionLowering(RewritePattern):
-    # convert llvm.GlobalOp to module attributes that store the global data
+@irdl_op_definition
+class RISCVGlobalOp(riscv.RISCVAsmOperation):
+    """
+    Represents a global data symbol in the .data section.
+    This operation holds global data that will be emitted in assembly.
+    """
+
+    name = "riscv.global"
+
+    sym_name = attr_def(StringAttr)
+    value = attr_def(base(Attribute))  # Store the llvm dense array
+    is_constant = attr_def(base(Attribute))  # Store a boolean indicator
+
+    def __init__(self, sym_name: str | StringAttr, value: Attribute, is_constant: bool = True):
+        if isinstance(sym_name, str):
+            sym_name = StringAttr(sym_name)
+
+        constant_attr = IntegerAttr(1 if is_constant else 0, 1)
+
+        super().__init__(
+            attributes={
+                "sym_name": sym_name,
+                "value": value,
+                "is_constant": constant_attr,
+            }
+        )
+
+    def assembly_line(self) -> str | None:
+        # This will be handled by emit_data_section walking the IR
+        return None
+
+
+class LLVMGlobalToRISCVGlobalLowering(RewritePattern):
+    """Convert llvm.GlobalOp to riscv.global"""
 
     @op_type_rewrite_pattern
     def match_and_rewrite(self, op: llvm.GlobalOp, rewriter: PatternRewriter):
-        # find the module
-        module_op = op.parent_op()
-        while module_op is not None and not isinstance(module_op, ModuleOp):
-            module_op = module_op.parent_op()
-        assert module_op is not None, "GlobalOp must be inside a ModuleOp"
-
-        # extract string data from the global
         sym_name = op.sym_name.data
-        global_type = op.global_type
         value = op.value
+        is_constant = op.constant is not None
 
-        # store the global info (we'll use this when printing assembly)
-        global_info = {
-            "type": global_type,
-            "value": value,
-            "linkage": op.linkage,
-            "constant": op.constant is not None,  # UnitAttr presence indicates constant
-        }
+        # Create a RISCV global operation
+        global_op = RISCVGlobalOp(sym_name, value, is_constant)
+        rewriter.insert_op(global_op, InsertPoint.at_start(op.parent_block()))
 
-        # store in the module_op's extra data (not standard MLIR attributes)
-        if not hasattr(module_op, "_riscv_globals"):
-            module_op._riscv_globals = {}
-        module_op._riscv_globals[sym_name] = global_info
-
-        # remove the global op
+        # Remove the LLVM global
         rewriter.erase_op(op, safe_erase=False)
 
 
 class LLVMAddressOfToRISCVLowering(RewritePattern):
-    # convert llvm.AddressOfOp to riscv.LiOp with label reference (will be post-processed to 'la')
+    """Convert llvm.AddressOfOp to riscv.li with a label"""
 
     @op_type_rewrite_pattern
     def match_and_rewrite(self, op: llvm.AddressOfOp, rewriter: PatternRewriter):
-        # get the symbol name
         global_name = op.global_name.root_reference.data
-
-        # create a riscv.li operation with immediate 0 (placeholder)
-        # we'll store the symbol name in an attribute for later processing
         reg_type = riscv.IntRegisterType.unallocated()
-        li_op = riscv.LiOp(0, rd=reg_type)
-
-        # store the symbol reference in the op for later conversion to 'la'
-        li_op.attributes["symbol_ref"] = op.global_name.root_reference
-
-        # replace the addressof with li
+        label = riscv.LabelAttr(global_name)
+        li_op = riscv.LiOp(label, rd=reg_type)
         rewriter.replace_op(op, [li_op], [li_op.rd])
 
 
 class RemovePrintfOpLowering(RewritePattern):
-    # remove printf operations since they can't be represented in riscv assembly without libc
-
     @op_type_rewrite_pattern
     def match_and_rewrite(self, op: printf.PrintFormatOp, rewriter: PatternRewriter):
         rewriter.erase_op(op, safe_erase=False)
@@ -142,32 +151,49 @@ class RemoveUnprintableOpsPass(ModulePass):
     name = "remove-unprintable-ops"
 
     def apply(self, _: Context, op: ModuleOp) -> None:
-        PatternRewriteWalker(GreedyRewritePatternApplier([LLVMGlobalToDataSectionLowering()])).rewrite_module(op)
+        PatternRewriteWalker(GreedyRewritePatternApplier([LLVMGlobalToRISCVGlobalLowering()])).rewrite_module(op)
         PatternRewriteWalker(GreedyRewritePatternApplier([LLVMAddressOfToRISCVLowering()])).rewrite_module(op)
         PatternRewriteWalker(GreedyRewritePatternApplier([RemovePrintfOpLowering()])).rewrite_module(op)
 
+# 
+# TODO: BRING THESE ALL INTO PASSES
+# 
 
 def emit_data_section(module_op: ModuleOp) -> str:
-    # convert LLVM global strings stored in module attributes to .data section in assembly
-    if not hasattr(module_op, "_riscv_globals") or not module_op._riscv_globals:
+    globals = [op for op in module_op.walk() if isinstance(op, RISCVGlobalOp)]
+
+    if not globals:
         return ""
 
     lines = [".data"]
-    for sym_name, global_info in module_op._riscv_globals.items():
-        value_attr = global_info["value"]
-        lines.extend([f".globl {sym_name}", f"{sym_name}:"])
-        assert hasattr(value_attr, "data") and hasattr(value_attr.data, "data"), "unsupported global value type"
+    for global_op in globals:
+        sym_name = global_op.sym_name.data
+        value_attr = global_op.value
 
-        # convert byte array to string
+        lines.extend([f".globl {sym_name}", f"{sym_name}:"])
+        assert hasattr(value_attr, "data") and hasattr(value_attr.data, "data")
         string_bytes = bytes(value_attr.data.data)
         try:
-            string_content = string_bytes[: string_bytes.index(0)].decode("utf-8")
+            null_index = string_bytes.index(0)
+            string_content = string_bytes[:null_index].decode("utf-8")
         except (ValueError, UnicodeDecodeError):
             string_content = string_bytes.decode("utf-8", errors="replace").rstrip("\x00")
 
-        # emit as .string directive
-        escaped = string_content.replace("\\", "\\\\").replace('"', '\\"')
+        escaped = string_content.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\t", "\\t")
         lines.append(f'    .string "{escaped}"')
 
     lines.append("")
     return "\n".join(lines) + "\n"
+
+
+def map_virtual_to_physical_registers(asm: str) -> str:
+
+    virtual_regs = set(re.findall(r"\bj_\d+\b", asm))
+    physical_regs = [f"t{i}" for i in range(7)] + [f"s{i}" for i in range(12)]
+    if len(virtual_regs) > len(physical_regs):
+        raise RuntimeError(f"too many virtual registers: {len(virtual_regs)} > {len(physical_regs)}")
+    virtual_list = sorted(virtual_regs, key=lambda x: int(x.split("_")[1]))
+    reg_map = {v: physical_regs[i] for i, v in enumerate(virtual_list)}
+    for virt, phys in reg_map.items():
+        asm = re.sub(rf"\b{virt}\b", phys, asm)
+    return asm
