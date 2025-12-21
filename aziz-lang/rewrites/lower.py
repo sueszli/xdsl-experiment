@@ -202,13 +202,13 @@ class LowerAzizPass(ModulePass):
         ).rewrite_module(op)
 
 
-class SelectOpLowering(RewritePattern):
-    # lower arith.select to RISCV using branchless mask-based selection:
-    #
-    # select(cond, true_val, false_val) ->
-    #     mask = -cond (0 or -1)
-    #     result = (true_val & mask) | (false_val & ~mask)
+#
+# lower arith.select to riscv
+# by replacing branches with bitwise operations
+#
 
+
+class SelectOpLowering(RewritePattern):
     @op_type_rewrite_pattern
     def match_and_rewrite(self, op: arith.SelectOp, rewriter: PatternRewriter):
         cond = op.cond
