@@ -2,6 +2,8 @@
 # requires-python = "==3.14"
 # dependencies = [
 #     "xdsl==0.56.0",
+#     "unicorn==2.1.4",
+#     "pyelftools==0.32",
 # ]
 # ///
 
@@ -14,6 +16,7 @@ from frontend.ast_nodes import dump
 from frontend.ir_gen import IRGen
 from frontend.parser import AzizParser
 from interpreter import AzizFunctions
+from qemu import run_riscv
 from rewrites.lower import LowerAzizPass
 from rewrites.lower_riscv import LowerSelectPass
 from rewrites.optimize import OptimizeAzizPass
@@ -153,7 +156,12 @@ if __name__ == "__main__":
         exit(0)
 
     if args.asm:
+        gray = lambda s: f"\033[90m{s}\033[0m"
         io = StringIO()
         riscv.print_assembly(module_op, io)
-        print(io.getvalue())
-        exit(0)
+        source = io.getvalue()
+        print(gray(f"{'-' * 100}\nriscv assembly\n{'-' * 100}"))
+        print(source)
+        print(gray(f"{'-' * 100}\nemulation result\n{'-' * 100}"))
+        result = run_riscv(source, entry_symbol="main")
+        print(f"{result['output']}")
