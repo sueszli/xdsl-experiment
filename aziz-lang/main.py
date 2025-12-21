@@ -14,7 +14,7 @@ from frontend.ast_nodes import dump
 from frontend.ir_gen import IRGen
 from frontend.parser import AzizParser
 from interpreter import AzizFunctions
-from rewrites.lower import LowerAzizPass
+from rewrites.lower import LowerAzizPass, LowerSelectPass
 from rewrites.optimize import OptimizeAzizPass
 from xdsl.backend.riscv.lowering.convert_arith_to_riscv import ConvertArithToRiscvPass
 from xdsl.backend.riscv.lowering.convert_func_to_riscv_func import ConvertFuncToRiscvFuncPass
@@ -65,6 +65,7 @@ def transform(module_op: ModuleOp, target: str):
     ConvertFuncToRiscvFuncPass().apply(ctx, module_op)
     ConvertMemRefToRiscvPass().apply(ctx, module_op)
     ConvertPrintFormatToRiscvDebugPass().apply(ctx, module_op)
+    LowerSelectPass().apply(ctx, module_op)  # convert arith.select to riscv (not supported by xdsl)
     ConvertArithToRiscvPass().apply(ctx, module_op)
     ConvertScfToRiscvPass().apply(ctx, module_op)
 
