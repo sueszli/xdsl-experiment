@@ -5,6 +5,10 @@ from xdsl.passes import ModulePass
 from xdsl.pattern_rewriter import GreedyRewritePatternApplier, PatternRewriter, PatternRewriteWalker, RewritePattern, op_type_rewrite_pattern
 from xdsl.rewriter import InsertPoint
 
+#
+# branching lowering
+#
+
 
 class SelectOpLowering(RewritePattern):
     # lower arith.select by replacing branches with bitwise operations
@@ -66,6 +70,11 @@ class LowerSelectPass(ModulePass):
 
     def apply(self, _: Context, op: ModuleOp) -> None:
         PatternRewriteWalker(GreedyRewritePatternApplier([SelectOpLowering()])).rewrite_module(op)
+
+
+#
+# printf lowering
+#
 
 
 class LLVMGlobalToDataSectionLowering(RewritePattern):
@@ -136,3 +145,29 @@ class RemoveUnprintableOpsPass(ModulePass):
         PatternRewriteWalker(GreedyRewritePatternApplier([LLVMGlobalToDataSectionLowering()])).rewrite_module(op)
         PatternRewriteWalker(GreedyRewritePatternApplier([LLVMAddressOfToRISCVLowering()])).rewrite_module(op)
         PatternRewriteWalker(GreedyRewritePatternApplier([RemovePrintfOpLowering()])).rewrite_module(op)
+
+
+def emit_data_section(module_op: ModuleOp) -> str:
+    # convert LLVM global strings stored in module attributes to .data section in assembly
+    if not hasattr(module_op, "_riscv_globals") or not module_op._riscv_globals:
+        return ""
+
+    lines = [".data"]
+    for sym_name, global_info in module_op._riscv_globals.items():
+        value_attr = global_info["value"]
+        lines.extend([f".globl {sym_name}", f"{sym_name}:"])
+        assert hasattr(value_attr, "data") and hasattr(value_attr.data, "data"), "unsupported global value type"
+
+        # convert byte array to string
+        string_bytes = bytes(value_attr.data.data)
+        try:
+            string_content = string_bytes[: string_bytes.index(0)].decode("utf-8")
+        except (ValueError, UnicodeDecodeError):
+            string_content = string_bytes.decode("utf-8", errors="replace").rstrip("\x00")
+
+        # emit as .string directive
+        escaped = string_content.replace("\\", "\\\\").replace('"', '\\"')
+        lines.append(f'    .string "{escaped}"')
+
+    lines.append("")
+    return "\n".join(lines) + "\n"
