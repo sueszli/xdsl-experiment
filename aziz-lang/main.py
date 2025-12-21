@@ -8,6 +8,7 @@
 # ///
 
 import argparse
+from functools import lru_cache
 from io import StringIO
 from pathlib import Path
 
@@ -38,8 +39,10 @@ from xdsl.transforms.riscv_allocate_registers import RISCVAllocateRegistersPass
 from xdsl.transforms.riscv_scf_loop_range_folding import RiscvScfLoopRangeFoldingPass
 
 
-def transform(module_op: ModuleOp, target: str):
+@lru_cache(None)
+def context() -> Context:
     ctx = Context()
+    ctx.load_dialect(aziz.Aziz)
     ctx.load_dialect(affine.Affine)
     ctx.load_dialect(arith.Arith)
     ctx.load_dialect(Builtin)
@@ -48,7 +51,11 @@ def transform(module_op: ModuleOp, target: str):
     ctx.load_dialect(riscv_func.RISCV_Func)
     ctx.load_dialect(riscv.RISCV)
     ctx.load_dialect(scf.Scf)
-    ctx.load_dialect(aziz.Aziz)
+    return ctx
+
+
+def transform(module_op: ModuleOp, target: str):
+    ctx = context()
 
     # optimize (drop unused, inline functions)
     OptimizeAzizPass().apply(ctx, module_op)
