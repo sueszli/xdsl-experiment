@@ -20,6 +20,7 @@ uv run aziz-lang/main.py examples/if.aziz --mlir
 uv run aziz-lang/main.py examples/optimize.aziz --mlir
 uv run aziz-lang/main.py examples/rec.aziz --mlir
 uv run aziz-lang/main.py examples/string.aziz --mlir
+uv run aziz-lang/main.py examples/string-dedup.aziz --mlir
 uv run aziz-lang/main.py examples/test.aziz --mlir
 
 uv run aziz-lang/main.py examples/hello.aziz --interpret
@@ -27,15 +28,17 @@ uv run aziz-lang/main.py examples/if.aziz --interpret
 uv run aziz-lang/main.py examples/optimize.aziz --interpret
 uv run aziz-lang/main.py examples/rec.aziz --interpret
 uv run aziz-lang/main.py examples/string.aziz --interpret
+uv run aziz-lang/main.py examples/string-dedup.aziz --interpret
 uv run aziz-lang/main.py examples/test.aziz --interpret
+
+uv run aziz-lang/main.py examples/hello.aziz --asm
+uv run aziz-lang/main.py examples/if.aziz --asm
+uv run aziz-lang/main.py examples/optimize.aziz --asm
+uv run aziz-lang/main.py examples/rec.aziz --asm
+uv run aziz-lang/main.py examples/string-dedup.aziz --asm
+uv run aziz-lang/main.py examples/string.aziz --asm
+uv run aziz-lang/main.py examples/test.aziz --asm
 ```
-
-
-fix optimize.py, fix main.py
-
-implement a super tiny script version, to experiment with optimizations for next steps
-
-
 
 references:
 
