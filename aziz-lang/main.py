@@ -6,7 +6,7 @@
 # ///
 
 import argparse
-import platform
+from io import StringIO
 from pathlib import Path
 
 from dialects import aziz
@@ -58,7 +58,7 @@ def transform(module_op: ModuleOp, target: str):
     CanonicalizePass().apply(ctx, module_op)
     module_op.verify()
 
-    if target == "default":
+    if target == "aziz-lowered":
         return
 
     # lower to riscv dialects
@@ -74,8 +74,7 @@ def transform(module_op: ModuleOp, target: str):
     if target == "riscv":
         return
 
-    # optimizations that don't depend on register allocation
-    # e.g. constant folding
+    # optimizations that don't depend on register allocation (e.g. constant folding)
     CanonicalizePass().apply(ctx, module_op)
     RiscvScfLoopRangeFoldingPass().apply(ctx, module_op)
     CanonicalizePass().apply(ctx, module_op)
@@ -92,8 +91,7 @@ def transform(module_op: ModuleOp, target: str):
     if target == "riscv-regalloc":
         return
 
-    # optimizations that depend on register allocation
-    # e.g. redundant moves
+    # optimizations that depend on register allocation (e.g. redundant moves)
     CanonicalizePass().apply(ctx, module_op)
 
     module_op.verify()
@@ -113,17 +111,16 @@ def transform(module_op: ModuleOp, target: str):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="aziz language")
     parser.add_argument("file", help="source file")
-    parser.add_argument("--target", help="target dialect", default="default")
+    parser.add_argument("--target", help="target dialect", default="riscv-lowered")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--ast", action="store_true", help="print final ir")
     group.add_argument("--mlir", action="store_true", help="print final mlir")
+    group.add_argument("--asm", action="store_true", help="emit RISC-V assembly")
     group.add_argument("--interpret", action="store_true", help="interpret the code")
     args = parser.parse_args()
     assert args.file.endswith(".aziz")
-    assert args.target in ["default", "riscv", "riscv-opt", "riscv-regalloc", "riscv-regalloc-opt", "riscv-lowered"]
+    assert args.target in ["default", "aziz-lowered", "scf", "riscv", "riscv-opt", "riscv-regalloc", "riscv-regalloc-opt", "riscv-lowered"]
     src = Path(args.file).read_text()
-
-    print(f"architecture: {platform.machine()}")
 
     module_ast = AzizParser(None, src).parse_module()  # source -> ast
     module_op = IRGen().ir_gen_module(module_ast)  # ast -> mlir
@@ -149,7 +146,8 @@ if __name__ == "__main__":
         print(module_op)
         exit(0)
 
-    # io = StringIO()
-    # riscv.print_assembly(module_op, io)
-    # result = io.getvalue()
-    # print(result)
+    if args.asm:
+        io = StringIO()
+        riscv.print_assembly(module_op, io)
+        print(io.getvalue())
+        exit(0)
