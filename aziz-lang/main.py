@@ -16,14 +16,14 @@ from frontend.ast_nodes import dump
 from frontend.ir_gen import IRGen
 from frontend.parser import AzizParser
 from interpreter import AzizFunctions
-from qemu import run_riscv
+from qemu import map_virtual_to_physical_registers, run_riscv
 from rewrites.lower import LowerAzizPass
 from rewrites.lower_riscv import LowerSelectPass
 from rewrites.optimize import OptimizeAzizPass
+from rewrites.remove_printf import RemoveUnprintableOpsPass
 from xdsl.backend.riscv.lowering.convert_arith_to_riscv import ConvertArithToRiscvPass
 from xdsl.backend.riscv.lowering.convert_func_to_riscv_func import ConvertFuncToRiscvFuncPass
 from xdsl.backend.riscv.lowering.convert_memref_to_riscv import ConvertMemRefToRiscvPass
-from xdsl.backend.riscv.lowering.convert_print_format_to_riscv_debug import ConvertPrintFormatToRiscvDebugPass
 from xdsl.backend.riscv.lowering.convert_riscv_scf_to_riscv_cf import ConvertRiscvScfToRiscvCfPass
 from xdsl.backend.riscv.lowering.convert_scf_to_riscv_scf import ConvertScfToRiscvPass
 from xdsl.context import Context
@@ -66,10 +66,10 @@ def transform(module_op: ModuleOp, target: str):
         return
 
     # lower func, memref, printf, arith, scf to riscv dialects
+    LowerSelectPass().apply(ctx, module_op)  # convert arith.select to riscv (not supported by xdsl)
+    RemoveUnprintableOpsPass().apply(ctx, module_op)  # todo: bring back printf in assembly
     ConvertFuncToRiscvFuncPass().apply(ctx, module_op)
     ConvertMemRefToRiscvPass().apply(ctx, module_op)
-    ConvertPrintFormatToRiscvDebugPass().apply(ctx, module_op)
-    LowerSelectPass().apply(ctx, module_op)  # convert arith.select to riscv (not supported by xdsl)
     ConvertArithToRiscvPass().apply(ctx, module_op)
     ConvertScfToRiscvPass().apply(ctx, module_op)
 
@@ -91,7 +91,7 @@ def transform(module_op: ModuleOp, target: str):
     if target == "riscv-opt":
         return
 
-    # assign virtual registers to physical riscv registers
+    # assign virtual registers to physical riscv registers (doesnt handle spilling for recursion)
     RISCVAllocateRegistersPass(allow_infinite=True).apply(ctx, module_op)
 
     module_op.verify()
@@ -117,7 +117,7 @@ def transform(module_op: ModuleOp, target: str):
     assert False, f"unknown target: {target}"
 
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser(description="aziz language")
     parser.add_argument("file", help="source file")
     parser.add_argument("--target", help="target dialect", default="riscv-lowered")
@@ -138,14 +138,14 @@ if __name__ == "__main__":
         interpreter = Interpreter(module_op)
         interpreter.register_implementations(AzizFunctions())
         interpreter.call_op("main", ())
-        exit(0)
+        return
 
     original_module_op = module_op.clone()
     transform(module_op, target=args.target)
 
     if args.ast:
         print(dump(module_ast))
-        exit(0)
+        return
 
     if args.mlir:
         gray = lambda s: f"\033[90m{s}\033[0m"
@@ -153,15 +153,22 @@ if __name__ == "__main__":
         print(original_module_op)
         print(gray(f"{'-' * 100}\nafter transformation\n{'-' * 100}"))
         print(module_op)
-        exit(0)
+        return
 
     if args.asm:
         gray = lambda s: f"\033[90m{s}\033[0m"
         io = StringIO()
         riscv.print_assembly(module_op, io)
         source = io.getvalue()
+        source = map_virtual_to_physical_registers(source)
         print(gray(f"{'-' * 100}\nriscv assembly\n{'-' * 100}"))
         print(source)
         print(gray(f"{'-' * 100}\nemulation result\n{'-' * 100}"))
         result = run_riscv(source, entry_symbol="main")
-        print(f"{result['output']}")
+        print(f"{result['output']=}")
+        print(f"{result['regs']=}")
+        return
+
+
+if __name__ == "__main__":
+    main()
