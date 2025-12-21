@@ -1,4 +1,4 @@
 (defun greet (name)
   (print name))
 
-(greet "Hello, World!")
+(greet "hello, world!")
