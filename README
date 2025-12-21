@@ -11,10 +11,11 @@
 ⢀⣾⣿⣿⣿⠁⠀⠀⠀⠀⠀⠈⠿⣿⣿⣿⡇
 
 
-make run-riscv FILE=./examples/hello.s
 
 
 ```
+make run-riscv FILE=examples/hello.s
+
 find examples -name "*.aziz"
 
 uv run aziz-lang/main.py examples/hello.aziz --mlir
