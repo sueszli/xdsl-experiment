@@ -76,9 +76,9 @@ def transform(module_op: ModuleOp, target: str):
     if target == "riscv":
         return
 
-    # optimizations that don't depend on register allocation (e.g. constant folding)
+    # optimizations that don't depend on register allocation
     CanonicalizePass().apply(ctx, module_op)
-    RiscvScfLoopRangeFoldingPass().apply(ctx, module_op)
+    RiscvScfLoopRangeFoldingPass().apply(ctx, module_op)  # fold scf loop ranges into riscv operations
     CanonicalizePass().apply(ctx, module_op)
 
     module_op.verify()
@@ -86,6 +86,7 @@ def transform(module_op: ModuleOp, target: str):
     if target == "riscv-opt":
         return
 
+    # assign virtual registers to physical riscv registers
     RISCVAllocateRegistersPass(allow_infinite=True).apply(ctx, module_op)
 
     module_op.verify()
@@ -101,6 +102,7 @@ def transform(module_op: ModuleOp, target: str):
     if target == "riscv-regalloc-opt":
         return
 
+    # lower riscv_func to labels and convert structured control flow to branches
     LowerRISCVFunc(insert_exit_syscall=True).apply(ctx, module_op)
     ConvertRiscvScfToRiscvCfPass().apply(ctx, module_op)
 
