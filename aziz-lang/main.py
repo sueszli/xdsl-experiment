@@ -71,8 +71,7 @@ def lower_aziz_mut(module_op: ModuleOp):
 def lower_riscv_mut(module_op: ModuleOp):
     ctx = context()
 
-    # lower func, memref, printf, arith, scf to riscv dialects
-    LowerSelectPass().apply(ctx, module_op)  # convert arith.select to riscv (not supported by xdsl)
+    LowerSelectPass().apply(ctx, module_op)  # arith.select missing from xdsl lib
     RemoveUnprintableOpsPass().apply(ctx, module_op)
     module_op.verify()
 
