@@ -74,34 +74,22 @@ def lower_riscv_mut(module_op: ModuleOp):
     # lower func, memref, printf, arith, scf to riscv dialects
     LowerSelectPass().apply(ctx, module_op)  # convert arith.select to riscv (not supported by xdsl)
     RemoveUnprintableOpsPass().apply(ctx, module_op)
-
-    ConvertFuncToRiscvFuncPass().apply(ctx, module_op)
-    ConvertMemRefToRiscvPass().apply(ctx, module_op)
-    ConvertArithToRiscvPass().apply(ctx, module_op)
-    ConvertScfToRiscvPass().apply(ctx, module_op)
-
-    # remove unused ops and resolve temporary cast operations
-    DeadCodeElimination().apply(ctx, module_op)
-    ReconcileUnrealizedCastsPass().apply(ctx, module_op)
     module_op.verify()
 
-    # optimizations that don't depend on register allocation
+    ConvertFuncToRiscvFuncPass().apply(ctx, module_op)  # func -> riscv_func
+    ConvertMemRefToRiscvPass().apply(ctx, module_op)  # memref -> riscv load/store
+    ConvertArithToRiscvPass().apply(ctx, module_op)  # arith -> riscv
+    ConvertScfToRiscvPass().apply(ctx, module_op)  # scf -> riscv_scf
+    DeadCodeElimination().apply(ctx, module_op)  # dce
+    ReconcileUnrealizedCastsPass().apply(ctx, module_op)  # cleanup casts
     CanonicalizePass().apply(ctx, module_op)
     RiscvScfLoopRangeFoldingPass().apply(ctx, module_op)  # fold scf loop ranges into riscv operations
     CanonicalizePass().apply(ctx, module_op)
-    module_op.verify()
-
-    # assign virtual registers to physical riscv registers (doesnt handle spilling for recursion)
-    RISCVAllocateRegistersPass(allow_infinite=True).apply(ctx, module_op)
-    module_op.verify()
-
-    # optimizations that depend on register allocation (e.g. redundant moves)
+    RISCVAllocateRegistersPass(allow_infinite=True).apply(ctx, module_op)  # virtual -> physical registers (no spilling check)
     CanonicalizePass().apply(ctx, module_op)
-    module_op.verify()
-
-    # lower riscv_func to labels and convert structured control flow to branches
-    LowerRISCVFunc(insert_exit_syscall=True).apply(ctx, module_op)
+    LowerRISCVFunc(insert_exit_syscall=True).apply(ctx, module_op)  # riscv_func -> riscv labels and jumps
     ConvertRiscvScfToRiscvCfPass().apply(ctx, module_op)
+    module_op.verify()
 
 
 def main():
