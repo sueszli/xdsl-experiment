@@ -19,7 +19,7 @@ from frontend.parser import AzizParser
 from interpreter import AzizFunctions
 from qemu import run_riscv
 from rewrites.lower import LowerAzizPass
-from rewrites.lower_riscv import AddRecursionSupportPass, CustomLowerScfToRiscvPass, EmitDataSectionPass, LowerSelectPass, MapToPhysicalRegistersPass, RemoveUnprintableOpsPass
+from rewrites.lower_riscv import AddPrintRuntimePass, AddRecursionSupportPass, CustomLowerScfToRiscvPass, EmitDataSectionPass, LowerPrintfPass, LowerSelectPass, MapToPhysicalRegistersPass, RemoveUnprintableOpsPass
 from rewrites.optimize import OptimizeAzizPass
 from xdsl.backend.riscv.lowering.convert_arith_to_riscv import ConvertArithToRiscvPass
 from xdsl.backend.riscv.lowering.convert_func_to_riscv_func import ConvertFuncToRiscvFuncPass
@@ -73,6 +73,7 @@ def lower_riscv_mut(module_op: ModuleOp):
     LowerSelectPass().apply(ctx, module_op)  # arith.select missing from xdsl lib
     RemoveUnprintableOpsPass().apply(ctx, module_op)  # handle llvm.global and llvm.address_of for strings
     EmitDataSectionPass().apply(ctx, module_op)
+    AddPrintRuntimePass().apply(ctx, module_op)
     module_op.verify()
 
     ConvertFuncToRiscvFuncPass().apply(ctx, module_op)  # func -> riscv_func
@@ -80,11 +81,11 @@ def lower_riscv_mut(module_op: ModuleOp):
     CustomLowerScfToRiscvPass().apply(ctx, module_op)  # replaces ConvertScfToRiscvPass
     ConvertMemRefToRiscvPass().apply(ctx, module_op)  # memref -> riscv load/store
     ConvertArithToRiscvPass().apply(ctx, module_op)  # arith -> riscv
+    LowerPrintfPass().apply(ctx, module_op)  # printf -> print runtime calls (after type conversion)
     DeadCodeElimination().apply(ctx, module_op)  # dce
     ReconcileUnrealizedCastsPass().apply(ctx, module_op)  # cleanup casts
     RISCVAllocateRegistersPass(allow_infinite=True).apply(ctx, module_op)  # virtual -> physical registers (no spilling check)
     MapToPhysicalRegistersPass().apply(ctx, module_op)
-    CanonicalizePass().apply(ctx, module_op)
     LowerRISCVFunc(insert_exit_syscall=True).apply(ctx, module_op)  # riscv_func -> riscv labels and jumps
     ConvertRiscvScfToRiscvCfPass().apply(ctx, module_op)
     module_op.verify()
