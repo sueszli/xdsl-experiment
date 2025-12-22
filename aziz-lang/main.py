@@ -119,9 +119,14 @@ def main():
     module_ast = AzizParser(None, src).parse_module()  # source -> ast
     module_op = IRGen().ir_gen_module(module_ast)  # ast -> mlir
 
+    gray = lambda s: f"\n\033[90m{'-' * 100}\n{s}\n{'-' * 100}\n\033[0m"
+
     if args.interpret:
         interpreter = Interpreter(module_op)
         interpreter.register_implementations(AzizFunctions())
+        print(gray("mlir"))
+        print(module_op)
+        print(gray("interpretation result"))
         interpreter.call_op("main", ())
         return
 
@@ -133,17 +138,16 @@ def main():
         print(dump(module_ast))
         return
 
-    title = lambda s: f"\n\033[90m{'-' * 100}\n{s}\n{'-' * 100}\n\033[0m"
     if args.mlir:
-        print(title("before transformation"))
+        print(gray("before transformation"))
         print(original_module_op)
-        print(title("after transformation"))
+        print(gray("after transformation"))
         print(module_op)
         return
 
     if args.asm:
         io = StringIO()
-        riscv.print_assembly(module_op, io)
+        riscv.print_assembly(module_op, io)  # mlir riscv dialect -> riscv assembly
         text_section = io.getvalue()
 
         # todo: move to seperate RewritePatterns
@@ -151,13 +155,10 @@ def main():
         text_section = map_virtual_to_physical_registers(text_section)
         source = data_section + text_section
 
-        print(title("riscv assembly"))
+        print(gray("riscv assembly"))
         print(source)
-        print(title("emulation result"))
-
-        result = run_riscv(source, entry_symbol="main")
-        print(f"{result['output']=}")
-        print(f"{result['regs']=}")
+        print(gray("emulation result"))
+        run_riscv(source, entry_symbol="main")
         return
 
 

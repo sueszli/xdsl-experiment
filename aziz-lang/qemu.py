@@ -78,7 +78,7 @@ def _create_execution_hooks(emulator: Uc, output_buffer: list[str]) -> None:
     emulator.hook_add(UC_HOOK_MEM_WRITE, mem_write_hook)
 
 
-def run_riscv(asm_code: str, entry_symbol: str = "main") -> dict[str, any]:
+def run_riscv(asm_code: str, entry_symbol: str = "main"):
     assert shutil.which("riscv64-unknown-elf-as") and shutil.which("riscv64-unknown-elf-ld"), "compiler not found"
     with tempfile.TemporaryDirectory() as tmp_dir_str:
         tmp_dir = Path(tmp_dir_str)
@@ -115,4 +115,7 @@ def run_riscv(asm_code: str, entry_symbol: str = "main") -> dict[str, any]:
             raise
 
         reg_map = [("t0", UC_RISCV_REG_T0), ("t1", UC_RISCV_REG_T1), ("t2", UC_RISCV_REG_T2), ("a0", UC_RISCV_REG_A0), ("a1", UC_RISCV_REG_A1), ("a7", UC_RISCV_REG_A7)]
-        return {"output": "".join(output_buffer), "regs": {name: emulator.reg_read(reg_id) for name, reg_id in reg_map}}
+        result = {"output": "".join(output_buffer), "regs": {name: emulator.reg_read(reg_id) for name, reg_id in reg_map}}
+
+        print(f"{result['output']=}")
+        print(f"{result['regs']=}")
