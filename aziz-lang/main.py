@@ -107,11 +107,11 @@ def lower_riscv_mut(module_op: ModuleOp):
 def main():
     parser = argparse.ArgumentParser(description="aziz language")
     parser.add_argument("file", help="source file")
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument("--ast", action="store_true", help="print final ir")
-    group.add_argument("--mlir", action="store_true", help="print final mlir")
-    group.add_argument("--asm", action="store_true", help="emit RISC-V assembly")
-    group.add_argument("--interpret", action="store_true", help="interpret the code")
+    xor_group = parser.add_mutually_exclusive_group()
+    xor_group.add_argument("--ast", action="store_true", help="print final ir")
+    xor_group.add_argument("--mlir", action="store_true", help="print final mlir")
+    xor_group.add_argument("--asm", action="store_true", help="emit RISC-V assembly")
+    xor_group.add_argument("--interpret", action="store_true", help="interpret the code")
     args = parser.parse_args()
     assert args.file.endswith(".aziz")
     src = Path(args.file).read_text()
@@ -146,6 +146,7 @@ def main():
         riscv.print_assembly(module_op, io)
         text_section = io.getvalue()
 
+        # todo: move to seperate RewritePatterns
         data_section = emit_data_section(module_op)
         text_section = map_virtual_to_physical_registers(text_section)
         source = data_section + text_section
@@ -153,6 +154,7 @@ def main():
         print(title("riscv assembly"))
         print(source)
         print(title("emulation result"))
+
         result = run_riscv(source, entry_symbol="main")
         print(f"{result['output']=}")
         print(f"{result['regs']=}")
