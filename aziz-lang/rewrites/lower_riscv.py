@@ -16,7 +16,7 @@ from xdsl.rewriter import InsertPoint
 
 class SelectOpLowering(RewritePattern):
     # lower arith.select by replacing branches with bitwise operations
-    # mask = 0b1111 if cond=1, 0b0000 if cond=0
+    # mask = 0b1111 if cond=1 else 0b0000
     # result = (true_val & mask) | (false_val & ~mask)
     @op_type_rewrite_pattern
     def match_and_rewrite(self, op: arith.SelectOp, rewriter: PatternRewriter):
