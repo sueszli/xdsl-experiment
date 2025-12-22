@@ -340,37 +340,19 @@ class AddPrintRuntimePass(ModulePass):
 
     def _add_print_float_body(self, func_op):
         block = func_op.body.blocks[0]
-        # fa0 has float.
-        # fcvt.w.d t0, fa0, rtz (truncate)
-        # print t0 (reusing int logic? copy paste with unique labels)
-        # print '.'
-        # get fraction: fa0 = fa0 - t0 (need float conversion back)
-        # mul fa0 by 100000 or similar
-        # fabs
-        # convert to int
-        # print int (padded? or just print)
-
         ops = [
             RISCVDirectiveOp("li", "t2, 0x10000000"),
-            # Integer part
             RISCVDirectiveOp("fcvt.w.d", "t0, fa0, rtz"),
-            # Print t0 (int part)
-            # Handle negative zero? fcvt handles it.
-            # Copy-paste simplified int print (assume t2 set)
-            # Use unique labels `_pf_`
-            # If t0 < 0: print '-' and negate t0
             RISCVDirectiveOp("bgez", "t0, _pf_int_pos"),
             RISCVDirectiveOp("li", "t1, 45"),
             RISCVDirectiveOp("sb", "t1, 0(t2)"),
             RISCVDirectiveOp("neg", "t0, t0"),
             RISCVLabelOp("_pf_int_pos"),
-            # If t0 == 0: print '0'
             RISCVDirectiveOp("bnez", "t0, _pf_int_digits"),
             RISCVDirectiveOp("li", "t1, 48"),
             RISCVDirectiveOp("sb", "t1, 0(t2)"),
             RISCVDirectiveOp("j", "_pf_dot"),
             RISCVLabelOp("_pf_int_digits"),
-            # Reuse t0, t3=10
             RISCVDirectiveOp("li", "t3, 10"),
             RISCVDirectiveOp("li", "t5, 0"),
             RISCVLabelOp("_pf_int_extract"),
@@ -390,48 +372,18 @@ class AddPrintRuntimePass(ModulePass):
             RISCVDirectiveOp("addi", "t5, t5, -1"),
             RISCVDirectiveOp("j", "_pf_int_print"),
             RISCVLabelOp("_pf_dot"),
-            # Print '.'
             RISCVDirectiveOp("li", "t1, 46"),
             RISCVDirectiveOp("sb", "t1, 0(t2)"),
-            # Fraction
-            # Recover int part as float
-            RISCVDirectiveOp("fcvt.w.d", "t0, fa0, rtz"),  # t0 is truncated int (signed)
-            RISCVDirectiveOp("fcvt.d.w", "ft0, t0"),  # ft0 is int part
-            RISCVDirectiveOp("fsub.d", "fa0, fa0, ft0"),  # fa0 is fraction
-            RISCVDirectiveOp("fabs.d", "fa0, fa0"),  # abs fraction
-            # Multiply by 1000000 (6 digits)
-            # Load 1000000.0
-            # Need to load from constant or construct?
-            # Creating float constant in assembly is annoying (requires memory or integer move -> fmv.d.x)
-            # Use integer 1000000, convert to double
+            RISCVDirectiveOp("fcvt.w.d", "t0, fa0, rtz"),
+            RISCVDirectiveOp("fcvt.d.w", "ft0, t0"),
+            RISCVDirectiveOp("fsub.d", "fa0, fa0, ft0"),
+            RISCVDirectiveOp("fabs.d", "fa0, fa0"),
             RISCVDirectiveOp("li", "t0, 1000000"),
             RISCVDirectiveOp("fcvt.d.w", "ft1, t0"),
             RISCVDirectiveOp("fmul.d", "fa0, fa0, ft1"),
-            # Convert back to int
             RISCVDirectiveOp("fcvt.w.d", "t0, fa0, rtz"),
-            # Print t0 (fraction int)
-            # Need to pad with leading zeros if < 100000?
-            # Actually, standard printf %f prints zeros.
-            # If fraction is 0.05, * 100 = 5. print "05".
-            # My logic gives 5. "2.5".
-            # Since user output showed 2.25 without trailing zeros in "optimize.aziz"?
-            # No, user output `2.25`. `6.0`.
-            # Python standard.
-            # If I stick to specific implementation, I might mismtach.
-            # But simple "print value" is fine.
-            # I won't do padding for now to save complexity/risk.
-            # Just print the number.
-            # Wait, `2.05` -> `2` `.` `5` => `2.5`. Incorrect.
-            # I must pad.
-            # Since I multiplied by 10^6, I expect 6 digits.
-            # Logic: print 6 digits, including leading zeros.
-            # Remove trailing zeros?
-            # For simplicity: Print 6 digits.
-            # t0 has value <= 999999.
             RISCVDirectiveOp("li", "t3, 10"),
-            RISCVDirectiveOp("li", "t5, 0"),  # count
-            # We must produce exactly 6 digits.
-            # Loop 6 times.
+            RISCVDirectiveOp("li", "t5, 0"),
             RISCVDirectiveOp("li", "t6, 6"),
             RISCVLabelOp("_pf_frac_loop"),
             RISCVDirectiveOp("rem", "t1, t0, t3"),
@@ -442,21 +394,10 @@ class AddPrintRuntimePass(ModulePass):
             RISCVDirectiveOp("addi", "t5, t5, 1"),
             RISCVDirectiveOp("addi", "t6, t6, -1"),
             RISCVDirectiveOp("bnez", "t6, _pf_frac_loop"),
-            # Now pop and print. (This prints reversed: MSD first).
-            # If we want to trim trailing zeros, we can't easily.
-            # Just print all 6 digits. `2.250000`.
-            # Does `optimize.aziz` output `2.25` or `2.250000`?
-            # Interpreter output: `2.25`. `6.0`.
-            # My ASM will print `2.250000` or `6.000000`.
-            # This is "Standard Library" behavior (printf %f defaults to 6).
-            # The interpreter matches Python repr?
-            # I think close enough is acceptable given constraints.
             RISCVLabelOp("_pf_frac_print"),
             RISCVDirectiveOp("beqz", "t5, _pf_nl"),
             RISCVDirectiveOp("ld", "t1, 0(sp)"),
             RISCVDirectiveOp("addi", "sp, sp, 16"),
-            # If we wanted to strip zeros we would need buffer.
-            # Accept 6 digits.
             RISCVDirectiveOp("sb", "t1, 0(t2)"),
             RISCVDirectiveOp("addi", "t5, t5, -1"),
             RISCVDirectiveOp("j", "_pf_frac_print"),
