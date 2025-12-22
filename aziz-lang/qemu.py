@@ -39,7 +39,7 @@ def _assemble_and_link(asm_code: str, tmp: Path) -> Path:
 
 
 def _find_symbol_address(elf_path: Path, symbol_name: str) -> int:
-    # locate  mem address of a symbol in ELF (e.g. "main") executable
+    # locate mem address of a symbol in ELF (e.g. "main") executable
     nm_output = subprocess.run(["riscv64-unknown-elf-nm", elf_path], capture_output=True, text=True, check=True).stdout
     assert nm_output
     for line in nm_output.splitlines():
