@@ -19,7 +19,7 @@ from frontend.parser import AzizParser
 from interpreter import AzizFunctions
 from qemu import run_riscv
 from rewrites.lower import LowerAzizPass
-from rewrites.lower_riscv import AddRecursionSupportPass, CustomLowerScfToRiscvPass, LowerSelectPass, RemoveUnprintableOpsPass, emit_data_section, map_virtual_to_physical_registers
+from rewrites.lower_riscv import AddRecursionSupportPass, CustomLowerScfToRiscvPass, EmitDataSectionPass, LowerSelectPass, MapToPhysicalRegistersPass, RemoveUnprintableOpsPass
 from rewrites.optimize import OptimizeAzizPass
 from xdsl.backend.riscv.lowering.convert_arith_to_riscv import ConvertArithToRiscvPass
 from xdsl.backend.riscv.lowering.convert_func_to_riscv_func import ConvertFuncToRiscvFuncPass
@@ -72,6 +72,7 @@ def lower_riscv_mut(module_op: ModuleOp):
 
     LowerSelectPass().apply(ctx, module_op)  # arith.select missing from xdsl lib
     RemoveUnprintableOpsPass().apply(ctx, module_op)  # handle llvm.global and llvm.address_of for strings
+    EmitDataSectionPass().apply(ctx, module_op)
     module_op.verify()
 
     ConvertFuncToRiscvFuncPass().apply(ctx, module_op)  # func -> riscv_func
@@ -82,6 +83,7 @@ def lower_riscv_mut(module_op: ModuleOp):
     DeadCodeElimination().apply(ctx, module_op)  # dce
     ReconcileUnrealizedCastsPass().apply(ctx, module_op)  # cleanup casts
     RISCVAllocateRegistersPass(allow_infinite=True).apply(ctx, module_op)  # virtual -> physical registers (no spilling check)
+    MapToPhysicalRegistersPass().apply(ctx, module_op)
     CanonicalizePass().apply(ctx, module_op)
     LowerRISCVFunc(insert_exit_syscall=True).apply(ctx, module_op)  # riscv_func -> riscv labels and jumps
     ConvertRiscvScfToRiscvCfPass().apply(ctx, module_op)
@@ -134,12 +136,7 @@ def main():
     if args.asm:
         io = StringIO()
         riscv.print_assembly(module_op, io)  # mlir riscv dialect -> riscv assembly
-        text_section = io.getvalue()
-
-        # todo: move to seperate RewritePatterns
-        data_section = emit_data_section(module_op)
-        text_section = map_virtual_to_physical_registers(text_section)
-        source = data_section + text_section
+        source = io.getvalue()
 
         print(gray("riscv assembly"))
         print(source)

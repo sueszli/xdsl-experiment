@@ -1,13 +1,36 @@
-import re
-
 from xdsl.context import Context
-from xdsl.dialects import arith, llvm, printf, riscv, riscv_func, scf
+from xdsl.dialects import arith, func, llvm, printf, riscv, riscv_func, scf
 from xdsl.dialects.builtin import IntegerAttr, ModuleOp, StringAttr, UnrealizedConversionCastOp
 from xdsl.ir import Attribute
 from xdsl.irdl import attr_def, base, irdl_op_definition
 from xdsl.passes import ModulePass
 from xdsl.pattern_rewriter import PatternRewriter, PatternRewriteWalker, RewritePattern, op_type_rewrite_pattern
 from xdsl.rewriter import InsertPoint
+
+#
+# assembly ops
+#
+
+
+@irdl_op_definition
+class RISCVDirectiveOp(riscv.RISCVAsmOperation):
+    name = "riscv.directive"
+    directive = attr_def(StringAttr)
+    value = attr_def(StringAttr)
+
+    def __init__(self, directive: str, value: str = ""):
+        super().__init__(
+            attributes={
+                "directive": StringAttr(directive),
+                "value": StringAttr(value),
+            }
+        )
+
+    def assembly_line(self) -> str | None:
+        if self.value.data:
+            return f"{self.directive.data} {self.value.data}"
+        return self.directive.data
+
 
 #
 # branching lowering
@@ -238,11 +261,6 @@ class RemoveUnprintableOpsPass(ModulePass):
         PatternRewriteWalker(RemovePrintfOpLowering()).rewrite_module(op)
 
 
-#
-# TODO: BRING THESE ALL INTO PASSES
-#
-
-
 class CustomScfIfToRiscvLowering(RewritePattern):
     def __init__(self):
         super().__init__()
@@ -330,18 +348,25 @@ class CustomLowerScfToRiscvPass(ModulePass):
         PatternRewriteWalker(CustomScfIfToRiscvLowering()).rewrite_module(op)
 
 
-def emit_data_section(module_op: ModuleOp) -> str:
-    globals = [op for op in module_op.walk() if isinstance(op, RISCVGlobalOp)]
+class LowerRISCVGlobalOp(RewritePattern):
+    @op_type_rewrite_pattern
+    def match_and_rewrite(self, op: RISCVGlobalOp, rewriter: PatternRewriter):
+        sym_name = op.sym_name.data
+        value_attr = op.value
 
-    if not globals:
-        return ""
+        # .data
+        data_directive = RISCVDirectiveOp(".data")
+        rewriter.insert_op(data_directive, InsertPoint.before(op))
 
-    lines = [".data"]
-    for global_op in globals:
-        sym_name = global_op.sym_name.data
-        value_attr = global_op.value
+        # .globl sym
+        globl_directive = RISCVDirectiveOp(".globl", sym_name)
+        rewriter.insert_op(globl_directive, InsertPoint.before(op))
 
-        lines.extend([f".globl {sym_name}", f"{sym_name}:"])
+        # sym:
+        label_op = RISCVLabelOp(sym_name)
+        rewriter.insert_op(label_op, InsertPoint.before(op))
+
+        # .string "..."
         assert hasattr(value_attr, "data") and hasattr(value_attr.data, "data")
         string_bytes = bytes(value_attr.data.data)
         try:
@@ -351,19 +376,135 @@ def emit_data_section(module_op: ModuleOp) -> str:
             string_content = string_bytes.decode("utf-8", errors="replace").rstrip("\x00")
 
         escaped = string_content.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\t", "\\t")
-        lines.append(f'    .string "{escaped}"')
+        string_directive = RISCVDirectiveOp(".string", f'"{escaped}"')
+        rewriter.insert_op(string_directive, InsertPoint.before(op))
 
-    lines.append("")
-    return "\n".join(lines) + "\n"
+        rewriter.erase_op(op)
 
 
-def map_virtual_to_physical_registers(asm: str) -> str:
-    virtual_regs = set(re.findall(r"\bj_\d+\b", asm))
-    physical_regs = [f"t{i}" for i in range(7)] + [f"s{i}" for i in range(12)]
-    if len(virtual_regs) > len(physical_regs):
-        raise RuntimeError(f"too many virtual registers: {len(virtual_regs)} > {len(physical_regs)}")
-    virtual_list = sorted(virtual_regs, key=lambda x: int(x.split("_")[1]))
-    reg_map = {v: physical_regs[i] for i, v in enumerate(virtual_list)}
-    for virt, phys in reg_map.items():
-        asm = re.sub(rf"\b{virt}\b", phys, asm)
-    return asm
+class EmitDataSectionPass(ModulePass):
+    name = "emit-data-section"
+
+    def apply(self, _: Context, op: ModuleOp) -> None:
+        PatternRewriteWalker(LowerRISCVGlobalOp()).rewrite_module(op)
+
+        # Ensure .text section for functions
+        # We find the first function and insert .text before it
+        for oper in op.body.blocks[0].ops:
+            if isinstance(oper, (riscv_func.FuncOp, func.FuncOp)):
+                text_directive = RISCVDirectiveOp(".text")
+                op.body.blocks[0].insert_op_before(text_directive, oper)
+                break
+
+
+class MapToPhysicalRegistersPass(ModulePass):
+    name = "map-to-physical-registers"
+
+    def apply(self, _: Context, op: ModuleOp) -> None:
+        # manual walk to avoid pattern rewriter issues
+        for func_op in op.walk():
+            if not isinstance(func_op, riscv_func.FuncOp):
+                continue
+
+            # find all virtual registers
+            virtual_regs = set()
+
+            def collect_virtual_regs(oper):
+                for result in oper.results:
+                    if isinstance(result.type, riscv.RegisterType):
+                        if hasattr(result.type, "register_name") and result.type.register_name:
+                            reg_name = result.type.register_name
+                            if isinstance(reg_name, StringAttr):
+                                reg_name = reg_name.data
+                            if reg_name.startswith("j_"):
+                                virtual_regs.add(reg_name)
+
+            # Collect from func op (entry block args are not results, but args)
+            # Ops inside func return virtual regs
+            for child in func_op.walk():
+                collect_virtual_regs(child)
+
+            # Also check block args of func_op??
+            # Typically virtual regs are defined by ops (e.g. li, add).
+            # But function args might be virtual too?
+            # In RISCV, args are usually physical (a0-a7) due to ABI.
+            # But let's check just in case.
+            for block in func_op.body.blocks:
+                for arg in block.args:
+                    if isinstance(arg.type, riscv.RegisterType):
+                        if hasattr(arg.type, "register_name") and arg.type.register_name:
+                            reg_name = arg.type.register_name
+                            if isinstance(reg_name, StringAttr):
+                                reg_name = reg_name.data
+                            if reg_name.startswith("j_"):
+                                virtual_regs.add(reg_name)
+
+            if not virtual_regs:
+                continue
+
+            # map to physical registers
+            physical_regs = [f"t{i}" for i in range(7)] + [f"s{i}" for i in range(12)]
+            if len(virtual_regs) > len(physical_regs):
+                raise RuntimeError(f"too many virtual registers: {len(virtual_regs)} > {len(physical_regs)}")
+
+            virtual_list = sorted(virtual_regs, key=lambda x: int(x.split("_")[1]))
+            reg_map = {v: physical_regs[i] for i, v in enumerate(virtual_list)}
+
+            # apply mapping
+            def map_regs(oper):
+                if hasattr(oper, "result_types"):
+                    new_types = []
+                    changed = False
+                    for typ in oper.result_types:
+                        if isinstance(typ, riscv.RegisterType):
+                            if hasattr(typ, "register_name") and typ.register_name:
+                                reg_name = typ.register_name
+                                if isinstance(reg_name, StringAttr):
+                                    reg_name = reg_name.data
+                                if reg_name in reg_map:
+                                    new_name = reg_map[reg_name]
+                                    new_type = riscv.IntRegisterType.from_name(new_name)
+                                    new_types.append(new_type)
+                                    changed = True
+                                    continue
+                        new_types.append(typ)
+
+                    if changed:
+                        # Construct new operation with updated result types
+                        # We use Operation.create to be generic.
+                        # Note: We must clone regions if present, but for now assuming simple ops
+                        # If regions are present, we might need to detach them from old op?
+                        regions = [r for r in oper.regions]
+                        for r in regions:
+                            r.detach()  # Detach from old op so we can move to new op
+
+                        new_op = oper.__class__.create(operands=oper.operands, result_types=new_types, attributes=oper.attributes, successors=oper.successors, regions=regions)
+
+                        # Replace usages
+                        for i, old_res in enumerate(oper.results):
+                            old_res.replace_by(new_op.results[i])
+
+                        # Replace in block
+                        if oper.parent_block():
+                            block = oper.parent_block()
+                            block.insert_op_before(new_op, oper)
+                            block.detach_op(oper)
+
+                for region in oper.regions:
+                    for block in region.blocks:
+                        for arg in block.args:
+                            if isinstance(arg.type, riscv.RegisterType):
+                                if hasattr(arg.type, "register_name") and arg.type.register_name:
+                                    reg_name = arg.type.register_name
+                                    if isinstance(reg_name, StringAttr):
+                                        reg_name = reg_name.data
+                                    if reg_name in reg_map:
+                                        new_name = reg_map[reg_name]
+                                        new_type = riscv.IntRegisterType.from_name(new_name)
+                                        arg.type = new_type
+
+            # Apply to func op args
+            map_regs(func_op)
+            # Apply to all children (ops inside func)
+            for child in func_op.walk():
+                map_regs(child)
