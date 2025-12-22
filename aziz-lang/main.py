@@ -63,7 +63,7 @@ def lower_aziz_mut(module_op: ModuleOp):
     LowerAzizPass().apply(ctx, module_op)
     LowerAffinePass().apply(ctx, module_op)
 
-    # looks up the canonicalization patterns for each op
+    # automatically look up and apply canonicalization patterns for each op
     CanonicalizePass().apply(ctx, module_op)
     module_op.verify()
 
