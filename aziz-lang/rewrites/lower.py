@@ -42,11 +42,10 @@ class LessThanEqualOpLowering(RewritePattern):
     @op_type_rewrite_pattern
     def match_and_rewrite(self, op: aziz.LessThanEqualOp, rewriter: PatternRewriter):
         if isinstance(op.lhs.type, AnyFloat):
-            # For floats, ole should work correctly
             rewriter.replace_op(op, arith.CmpfOp(op.lhs, op.rhs, "ole"))  # ordered less equal
         else:
             # xDSL's sle is buggy: it computes !(lhs < rhs) = lhs >= rhs instead of lhs <= rhs
-            # Work around by swapping operands: sle(rhs, lhs) computes !(rhs < lhs) = lhs <= rhs
+            # work around by swapping operands: sle(rhs, lhs) computes !(rhs < lhs) = lhs <= rhs
             rewriter.replace_op(op, arith.CmpiOp(op.rhs, op.lhs, "sle"))  # SWAPPED!
 
 
