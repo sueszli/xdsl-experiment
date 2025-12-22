@@ -1,5 +1,4 @@
 from dialects import aziz
-from rewrites.optimize import InlineFunctions, RemoveUnusedPrivateFunctions
 from xdsl.context import Context
 from xdsl.dialects.builtin import ModuleOp, StringAttr
 from xdsl.passes import ModulePass

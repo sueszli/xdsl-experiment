@@ -6,6 +6,10 @@ from xdsl.passes import ModulePass
 from xdsl.pattern_rewriter import GreedyRewritePatternApplier, PatternRewriter, PatternRewriteWalker, RewritePattern, op_type_rewrite_pattern
 from xdsl.rewriter import InsertPoint
 
+#
+# arith
+#
+
 
 class AddOpLowering(RewritePattern):
     @op_type_rewrite_pattern
@@ -59,25 +63,6 @@ class ConstantOpLowering(RewritePattern):
             rewriter.replace_op(op, arith.ConstantOp(val))
 
 
-class ReturnOpLowering(RewritePattern):
-    @op_type_rewrite_pattern
-    def match_and_rewrite(self, op: aziz.ReturnOp, rewriter: PatternRewriter):
-        rewriter.replace_op(op, func.ReturnOp(op.input) if op.input else func.ReturnOp())
-
-
-class FuncOpLowering(RewritePattern):
-    @op_type_rewrite_pattern
-    def match_and_rewrite(self, op: aziz.FuncOp, rewriter: PatternRewriter):
-        new_op = func.FuncOp(op.sym_name.data, op.function_type, rewriter.move_region_contents_to_new_regions(op.body), visibility=op.sym_visibility)
-        rewriter.replace_op(op, new_op)
-
-
-class CallOpLowering(RewritePattern):
-    @op_type_rewrite_pattern
-    def match_and_rewrite(self, op: aziz.CallOp, rewriter: PatternRewriter):
-        rewriter.replace_op(op, func.CallOp(op.callee, op.arguments, op.res.types))
-
-
 class IfOpLowering(RewritePattern):
     @op_type_rewrite_pattern
     def match_and_rewrite(self, op: aziz.IfOp, rewriter: PatternRewriter):
@@ -118,10 +103,58 @@ class IfOpLowering(RewritePattern):
         rewriter.replace_op(op, select)
 
 
+#
+# func
+#
+
+
+class ReturnOpLowering(RewritePattern):
+    @op_type_rewrite_pattern
+    def match_and_rewrite(self, op: aziz.ReturnOp, rewriter: PatternRewriter):
+        rewriter.replace_op(op, func.ReturnOp(op.input) if op.input else func.ReturnOp())
+
+
+class FuncOpLowering(RewritePattern):
+    @op_type_rewrite_pattern
+    def match_and_rewrite(self, op: aziz.FuncOp, rewriter: PatternRewriter):
+        new_op = func.FuncOp(op.sym_name.data, op.function_type, rewriter.move_region_contents_to_new_regions(op.body), visibility=op.sym_visibility)
+        rewriter.replace_op(op, new_op)
+
+
+class CallOpLowering(RewritePattern):
+    @op_type_rewrite_pattern
+    def match_and_rewrite(self, op: aziz.CallOp, rewriter: PatternRewriter):
+        rewriter.replace_op(op, func.CallOp(op.callee, op.arguments, op.res.types))
+
+
+#
+# scf
+#
+
+
 class YieldOpLowering(RewritePattern):
     @op_type_rewrite_pattern
     def match_and_rewrite(self, op: aziz.YieldOp, rewriter: PatternRewriter):
         rewriter.replace_op(op, scf.YieldOp(op.input))
+
+
+#
+# printf
+#
+
+
+class PrintOpLowering(RewritePattern):
+    @op_type_rewrite_pattern
+    def match_and_rewrite(self, op: aziz.PrintOp, rewriter: PatternRewriter):
+        if isinstance(op.input.type, llvm.LLVMPointerType):  # constant string (llvm global pointer)
+            rewriter.replace_op(op, printf.PrintFormatOp("{}", op.input))
+        else:  # (integers, floats, etc.)
+            rewriter.replace_op(op, printf.PrintFormatOp("{}", op.input))
+
+
+#
+# llvm
+#
 
 
 class StringConstantOpLowering(RewritePattern):
@@ -166,15 +199,6 @@ class StringConstantOpLowering(RewritePattern):
         initial_value = DenseIntOrFPElementsAttr.from_list(vector_type, list(encoded_val))  # requires tensor/vector type, not LLVM array type
         global_op = llvm.GlobalOp(array_type, global_name, linkage=llvm.LinkageAttr("internal"), constant=True, value=initial_value)
         rewriter.insert_op(global_op, InsertPoint.at_start(module.body.blocks[0]))
-
-
-class PrintOpLowering(RewritePattern):
-    @op_type_rewrite_pattern
-    def match_and_rewrite(self, op: aziz.PrintOp, rewriter: PatternRewriter):
-        if isinstance(op.input.type, llvm.LLVMPointerType):  # constant string (llvm global pointer)
-            rewriter.replace_op(op, printf.PrintFormatOp("{}", op.input))
-        else:  # (integers, floats, etc.)
-            rewriter.replace_op(op, printf.PrintFormatOp("{}", op.input))
 
 
 class LowerAzizPass(ModulePass):
