@@ -7,7 +7,6 @@ from xdsl.passes import ModulePass
 from xdsl.pattern_rewriter import PatternRewriter, PatternRewriteWalker, RewritePattern, op_type_rewrite_pattern
 from xdsl.rewriter import InsertPoint
 
-
 #
 # branching lowering
 #
@@ -38,7 +37,7 @@ class SelectOpLowering(RewritePattern):
         rewriter.insert_op(false_cast, InsertPoint.before(op))
         false_reg = false_cast.results[0]
 
-        # mask = 0 - cond  (creates 0b0000 or 0b1111)
+        # mask = 0 - cond (creates 0b0000 or 0b1111)
         zero = riscv.GetRegisterOp(riscv.Registers.ZERO)
         rewriter.insert_op(zero, InsertPoint.before(op))
         mask = riscv.SubOp(zero.res, cond_reg, rd=reg_type)
@@ -76,7 +75,7 @@ class LowerSelectPass(ModulePass):
 
 
 #
-# drop unprintable ops
+# ???
 #
 
 
