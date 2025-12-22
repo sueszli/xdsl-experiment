@@ -59,7 +59,7 @@ def lower_aziz_mut(module_op: ModuleOp):
     # drop unused functions, inline one-liner functions
     OptimizeAzizPass().apply(ctx, module_op)
 
-    # lower to arith, func, printf, scf, llvm.global for strings
+    # lower to arith, func, scf, printf, llvm.global for strings
     LowerAzizPass().apply(ctx, module_op)
     LowerAffinePass().apply(ctx, module_op)
 

@@ -146,9 +146,11 @@ class YieldOpLowering(RewritePattern):
 class PrintOpLowering(RewritePattern):
     @op_type_rewrite_pattern
     def match_and_rewrite(self, op: aziz.PrintOp, rewriter: PatternRewriter):
-        if isinstance(op.input.type, llvm.LLVMPointerType):  # constant string (llvm global pointer)
+        if isinstance(op.input.type, llvm.LLVMPointerType):
+            # constant string (llvm global pointer)
             rewriter.replace_op(op, printf.PrintFormatOp("{}", op.input))
-        else:  # (integers, floats, etc.)
+        else:
+            # integers, floats
             rewriter.replace_op(op, printf.PrintFormatOp("{}", op.input))
 
 
