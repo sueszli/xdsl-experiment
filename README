@@ -3,7 +3,7 @@
 ⠀⠀⠘⠉⠉⠙⣿⣿⣿⣷⠀⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⢸⣿⣿⣿⣧⠀⠀     aziz programming language.
 ⠀⠀⠀⠀⠀⠀⣼⣿⣿⣿⣿⣆⠀
-⠀⠀⠀⠀⠀⣼⣿⣿⣿⣿⣿⣿⡀     a subset of common lisp
+⠀⠀⠀⠀⠀⣼⣿⣿⣿⣿⣿⣿⡀     a toy common lisp compiler
 ⠀⠀⠀⠀⣴⣿⣿⣿⠟⣿⣿⣿⣷     implemented using xDSL/MLIR
 ⠀⠀⠀⣰⣿⣿⣿⡏⠀⠸⣿⣿⣿⣇    lowered to RISC-V assembly
 ⠀⠀⢠⣿⣿⣿⡟⠀⠀⠀⢻⣿⣿⣿⡆
