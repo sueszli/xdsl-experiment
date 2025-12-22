@@ -14,6 +14,7 @@
 
 
 ```
+brew install qemu
 find examples -name "*.aziz"
 
 uv run aziz-lang/main.py examples/hello.aziz --all
