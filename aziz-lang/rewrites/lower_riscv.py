@@ -6,7 +6,7 @@ from xdsl.dialects.builtin import IntegerAttr, ModuleOp, StringAttr, UnrealizedC
 from xdsl.ir import Attribute
 from xdsl.irdl import attr_def, base, irdl_op_definition
 from xdsl.passes import ModulePass
-from xdsl.pattern_rewriter import GreedyRewritePatternApplier, PatternRewriter, PatternRewriteWalker, RewritePattern, op_type_rewrite_pattern
+from xdsl.pattern_rewriter import PatternRewriter, PatternRewriteWalker, RewritePattern, op_type_rewrite_pattern
 from xdsl.rewriter import InsertPoint
 
 #
@@ -73,7 +73,7 @@ class LowerSelectPass(ModulePass):
     name = "lower-select"
 
     def apply(self, _: Context, op: ModuleOp) -> None:
-        PatternRewriteWalker(GreedyRewritePatternApplier([SelectOpLowering()])).rewrite_module(op)
+        PatternRewriteWalker(SelectOpLowering()).rewrite_module(op)
 
 
 #
@@ -152,9 +152,9 @@ class RemoveUnprintableOpsPass(ModulePass):
     name = "remove-unprintable-ops"
 
     def apply(self, _: Context, op: ModuleOp) -> None:
-        PatternRewriteWalker(GreedyRewritePatternApplier([LLVMGlobalToRISCVGlobalLowering()])).rewrite_module(op)
-        PatternRewriteWalker(GreedyRewritePatternApplier([LLVMAddressOfToRISCVLowering()])).rewrite_module(op)
-        PatternRewriteWalker(GreedyRewritePatternApplier([RemovePrintfOpLowering()])).rewrite_module(op)
+        PatternRewriteWalker(LLVMGlobalToRISCVGlobalLowering()).rewrite_module(op)
+        PatternRewriteWalker(LLVMAddressOfToRISCVLowering()).rewrite_module(op)
+        PatternRewriteWalker(RemovePrintfOpLowering()).rewrite_module(op)
 
 
 #
