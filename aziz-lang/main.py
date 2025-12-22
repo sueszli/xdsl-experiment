@@ -121,6 +121,11 @@ def main():
 
     gray = lambda s: f"\n\033[90m{'-' * 100}\n{s}\n{'-' * 100}\n\033[0m"
 
+    if args.ast:
+        print(gray("ast"))
+        print(dump(module_ast))
+        return
+
     if args.interpret:
         interpreter = Interpreter(module_op)
         interpreter.register_implementations(AzizFunctions())
@@ -133,10 +138,6 @@ def main():
     original_module_op = module_op.clone()
     lower_aziz_mut(module_op)
     lower_riscv_mut(module_op)
-
-    if args.ast:
-        print(dump(module_ast))
-        return
 
     if args.mlir:
         print(gray("before transformation"))
