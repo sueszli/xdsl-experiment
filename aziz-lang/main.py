@@ -70,13 +70,10 @@ def lower_aziz_mut(module_op: ModuleOp):
 
 def lower_riscv_mut(module_op: ModuleOp):
     ctx = context()
-
     LowerSelectPass().apply(ctx, module_op)  # arith.select missing from xdsl lib
     RemoveUnprintableOpsPass().apply(ctx, module_op)  # handle llvm.global and llvm.address_of for strings
     EmitDataSectionPass().apply(ctx, module_op)
     AddPrintRuntimePass().apply(ctx, module_op)
-    module_op.verify()
-
     ConvertFuncToRiscvFuncPass().apply(ctx, module_op)  # func -> riscv_func
     AddRecursionSupportPass().apply(ctx, module_op)
     CustomLowerScfToRiscvPass().apply(ctx, module_op)  # replaces ConvertScfToRiscvPass

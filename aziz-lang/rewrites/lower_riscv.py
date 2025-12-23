@@ -1,3 +1,5 @@
+from typing import Callable
+
 from qemu import STDOUT_ADDR
 from xdsl.context import Context
 from xdsl.dialects import arith, func, llvm, printf, riscv, riscv_func, scf
@@ -229,60 +231,39 @@ class LowerPrintfPass(ModulePass):
 class AddPrintRuntimePass(ModulePass):
     name = "add-print-runtime"
 
-    def apply(self, ctx: Context, op: ModuleOp):
+    def apply(self, ctx: Context, op: ModuleOp) -> None:
         self._add_func(op, "_print_string", "a0", self._print_string_asm)
         self._add_func(op, "_print_int", "a0", self._print_int_asm)
         self._add_func(op, "_print_float", "fa0", self._print_float_asm)
 
-    def _add_func(self, mod, name, arg_reg, asm_gen_fn):
+    def _add_func(self, module: ModuleOp, name: str, arg_reg: str, asm_gen_fn: Callable[[], list[str]]) -> None:
         arg_t = riscv.FloatRegisterType.from_name(arg_reg) if arg_reg.startswith("f") else riscv.IntRegisterType.from_name(arg_reg)
-        f = riscv_func.FuncOp(name=name, region=Region(Block(arg_types=[arg_t])), function_type=func.FunctionType.from_lists([arg_t], []))
-        self._emit_block(f.body.blocks[0], asm_gen_fn())
-        mod.body.blocks[0].add_op(f)
 
-    def _emit_block(self, block, asm_lines):
-        for line in asm_lines:
+        # function with signature: fn(arg_t) -> void
+        f = riscv_func.FuncOp(name=name, region=Region(Block(arg_types=[arg_t])), function_type=func.FunctionType.from_lists([arg_t], []))
+
+        asm_instructions = asm_gen_fn()
+        self._emit_block(f.body.blocks[0], asm_instructions)
+
+        module.body.blocks[0].add_op(f)
+
+    def _emit_block(self, block: Block, asm_instructions: list[str]) -> None:
+        # convert assembly instruction strings to IR operations
+        for line in asm_instructions:
             if line == "ret":
+                # jump back to caller (= `jalr x0, x1, 0` where x1 is return address register)
                 block.add_op(riscv_func.ReturnOp())
                 continue
             if line.endswith(":"):
+                # label definition: "_ps_loop:" -> RISCVLabelOp("_ps_loop")
                 block.add_op(RISCVLabelOp(line[:-1]))
             else:
+                # regular instruction: "mv t0, a0" -> RISCVDirectiveOp("mv", "t0, a0")
                 parts = line.split(" ", 1)
                 block.add_op(RISCVDirectiveOp(parts[0], parts[1] if len(parts) > 1 else ""))
 
-    def _emit_digits(self, lbl):
-        # Extract digits: push to stack, then pop and print
-        return [
-            f"li t3, 10",
-            f"li t5, 0",
-            f"{lbl}_loop:",
-            f"beqz t0, {lbl}_print",
-            f"rem t1, t0, t3",
-            f"div t0, t0, t3",
-            f"addi t1, t1, 48",
-            f"addi sp, sp, -16",
-            f"sd t1, 0(sp)",
-            f"addi t5, t5, 1",
-            f"j {lbl}_loop",
-            f"{lbl}_print:",
-            f"beqz t5, {lbl}_end",
-            f"ld t1, 0(sp)",
-            f"addi sp, sp, 16",
-            f"sb t1, 0(t2)",
-            f"addi t5, t5, -1",
-            f"j {lbl}_print",
-            f"{lbl}_end:",
-        ]  # to ascii
-
-    def _print_newline(self):
-        return [
-            f"li t1, 10",
-            f"sb t1, 0(t2)",
-            "ret",
-        ]
-
-    def _print_string_asm(self):
+    def _print_string_asm(self) -> list[str]:
+        # while (*str != '\0') { *STDOUT_ADDR = *str; str++; }
         return [
             f"mv t0, a0",
             f"li t2, {STDOUT_ADDR}",
@@ -295,19 +276,19 @@ class AddPrintRuntimePass(ModulePass):
             "_ps_done:",
         ] + self._print_newline()
 
-    def _print_int_asm(self):
+    def _print_int_asm(self) -> list[str]:
         return (
             [
                 f"li t2, {STDOUT_ADDR}",
                 "bnez a0, _pi_nz",
-                "li t1, 48",
+                "li t1, 48",  # '0'
                 "sb t1, 0(t2)",
-                "j _pi_done",  # print '0'
+                "j _pi_done",
                 "_pi_nz:",
                 "bgez a0, _pi_pos",
-                "li t1, 45",
+                "li t1, 45",  # '-'
                 "sb t1, 0(t2)",
-                "neg a0, a0",  # print '-'
+                "neg a0, a0",
                 "_pi_pos:",
                 "mv t0, a0",
             ]
@@ -316,50 +297,50 @@ class AddPrintRuntimePass(ModulePass):
             + self._print_newline()
         )
 
-    def _print_float_asm(self):
-        # fcvt round-to-zero, print int part, print dot, extract frac, print 6 digits
+    def _print_float_asm(self) -> list[str]:
         return (
+            # print integer part
             [
                 f"li t2, {STDOUT_ADDR}",
-                "fcvt.w.d t0, fa0, rtz",  # int part
+                "fcvt.w.d t0, fa0, rtz",  # round towards zero
                 "bgez t0, _pf_pos",
-                "li t1, 45",
+                "li t1, 45",  # '-'
                 "sb t1, 0(t2)",
-                "neg t0, t0",  # '-'
+                "neg t0, t0",
                 "_pf_pos:",
                 "bnez t0, _pf_int",
-                "li t1, 48",
+                "li t1, 48",  # '0'
                 "sb t1, 0(t2)",
-                "j _pf_dot",  # '0'
+                "j _pf_dot",
                 "_pf_int:",
             ]
             + self._emit_digits("_pf_body")
+            # print fractional part
             + [
                 "_pf_dot:",
-                "li t1, 46",
-                "sb t1, 0(t2)",  # '.'
-                "fcvt.w.d t0, fa0, rtz",
-                "fcvt.d.w ft0, t0",
-                "fsub.d fa0, fa0, ft0",
+                "li t1, 46",  # '.'
+                "sb t1, 0(t2)",
+                "fcvt.w.d t0, fa0, rtz",  # float to int
+                "fcvt.d.w ft0, t0",  # int to float
+                "fsub.d fa0, fa0, ft0",  # fa0 = fa0 - intpart
                 "fabs.d fa0, fa0",  # get fractional part
                 "li t0, 1000000",
                 "fcvt.d.w ft1, t0",
-                "fmul.d fa0, fa0, ft1",  # * 1M
+                "fmul.d fa0, fa0, ft1",  # * 1_000_000 to shift decimal places
                 "fcvt.w.d t0, fa0, rtz",
                 # print 6 frac digits
                 "li t3, 10",
                 "li t5, 0",
                 "li t6, 6",
-                "_pf_frac_loop:",
-                "rem t1, t0, t3",
-                "div t0, t0, t3",
-                "addi t1, t1, 48",
+                "_pf_frac_loop:",  # can't call `_emit_digits` here due to leading zeros
+                "rem t1, t0, t3",  # t1 = t0 % 10
+                "div t0, t0, t3",  # t0 = t0 / 10
+                "addi t1, t1, 48",  # convert to ASCII, where '0' = 48
                 "addi sp, sp, -16",
                 "sd t1, 0(sp)",
                 "addi t5, t5, 1",
                 "addi t6, t6, -1",
                 "bnez t6, _pf_frac_loop",
-                # print loop shared logic would go here but simpler to just inline print loop for safety
                 "_pf_frac_print:",
                 "beqz t5, _pf_done",
                 "ld t1, 0(sp)",
@@ -371,6 +352,38 @@ class AddPrintRuntimePass(ModulePass):
             ]
             + self._print_newline()
         )
+
+    def _emit_digits(self, lbl: str) -> list[str]:
+        return [
+            f"li t3, 10",
+            f"li t5, 0",
+            # push digits to stack
+            f"{lbl}_loop:",
+            f"beqz t0, {lbl}_print",  # while t0 != 0
+            f"rem t1, t0, t3",  # t1 = t0 % 10
+            f"div t0, t0, t3",  # t0 = t0 / 10
+            f"addi t1, t1, 48",  # convert to ASCII, where '0' = 48
+            f"addi sp, sp, -16",
+            f"sd t1, 0(sp)",
+            f"addi t5, t5, 1",
+            f"j {lbl}_loop",
+            # pop and print digits
+            f"{lbl}_print:",
+            f"beqz t5, {lbl}_end",
+            f"ld t1, 0(sp)",
+            f"addi sp, sp, 16",
+            f"sb t1, 0(t2)",  # print char
+            f"addi t5, t5, -1",
+            f"j {lbl}_print",
+            f"{lbl}_end:",
+        ]
+
+    def _print_newline(self) -> list[str]:
+        return [
+            f"li t1, 10",  # 10 is newline character
+            f"sb t1, 0(t2)",  # t2 stores STDOUT_ADDR
+            "ret",
+        ]
 
 
 #
