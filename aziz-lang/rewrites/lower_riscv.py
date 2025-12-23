@@ -4,7 +4,7 @@ from typing import Callable
 from qemu import STDOUT_ADDR
 from xdsl.context import Context
 from xdsl.dialects import arith, func, llvm, printf, riscv, riscv_func, scf
-from xdsl.dialects.builtin import IntegerAttr, ModuleOp, StringAttr, SymbolRefAttr, UnrealizedConversionCastOp
+from xdsl.dialects.builtin import ArrayAttr, IntegerAttr, ModuleOp, StringAttr, SymbolRefAttr, UnrealizedConversionCastOp
 from xdsl.ir import Attribute, Block, Operation, Region, SSAValue
 from xdsl.irdl import attr_def, base, irdl_op_definition, result_def
 from xdsl.passes import ModulePass
@@ -157,7 +157,11 @@ class RemoveUnprintableOpsPass(ModulePass):
 class LowerRISCVGlobalOp(RewritePattern):
     @op_type_rewrite_pattern
     def match_and_rewrite(self, op: RISCVGlobalOp, rewriter: PatternRewriter):
-        data = bytes(op.value.data.data)
+        if isinstance(op.value, ArrayAttr):
+            data = bytes([i.value.data for i in op.value.data])
+        else:
+            data = bytes(op.value.data.data)
+
         content = data.split(b"\0", 1)[0].decode("utf-8", errors="replace")
         escaped = content.translate(str.maketrans({"\n": "\\n", "\t": "\\t", '"': '\\"', "\\": "\\\\"}))
 

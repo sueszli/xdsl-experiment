@@ -8,7 +8,7 @@
 # ///
 
 import argparse
-import sys
+from contextlib import redirect_stdout
 from functools import lru_cache
 from io import StringIO
 from pathlib import Path
@@ -18,8 +18,10 @@ from frontend.ast_nodes import dump
 from frontend.ir_gen import IRGen
 from frontend.parser import AzizParser
 from interpreter import AzizFunctions
+from llvm_exec import execute_llvm
 from qemu import emulate_riscv
 from rewrites.lower import LowerAzizPass
+from rewrites.lower_llvm import LowerPrintfToLLVMCallPass
 from rewrites.lower_riscv import AddPrintRuntimePass, AddRecursionSupportPass, CustomLowerScfToRiscvPass, EmitDataSectionPass, LowerPrintfPass, LowerSelectPass, MapToPhysicalRegistersPass, RemoveUnprintableOpsPass, format_assembly
 from rewrites.optimize import OptimizeAzizPass
 from xdsl.backend.riscv.lowering.convert_arith_to_riscv import ConvertArithToRiscvPass
@@ -38,33 +40,92 @@ from xdsl.transforms.reconcile_unrealized_casts import ReconcileUnrealizedCastsP
 from xdsl.transforms.riscv_allocate_registers import RISCVAllocateRegistersPass
 
 
-@lru_cache(None)
-def context() -> Context:
-    ctx = Context()
-    ctx.load_dialect(aziz.Aziz)
-    ctx.load_dialect(affine.Affine)
-    ctx.load_dialect(arith.Arith)
-    ctx.load_dialect(Builtin)
-    ctx.load_dialect(func.Func)
-    ctx.load_dialect(printf.Printf)
-    ctx.load_dialect(riscv_func.RISCV_Func)
-    ctx.load_dialect(riscv_scf.RISCV_Scf)
-    ctx.load_dialect(riscv.RISCV)
-    ctx.load_dialect(scf.Scf)
-    return ctx
+def main():
+    parser = argparse.ArgumentParser(description="aziz language")
+    parser.add_argument("file", help="source file")
+    # lowerings
+    parser.add_argument("--emit-source", action="store_true", help="emit source code")
+    parser.add_argument("--emit-ast", action="store_true", help="emit abstract syntax tree")
+    parser.add_argument("--emit-mlir", action="store_true", help="emit mlir before and after optimization")
+    parser.add_argument("--emit-riscv", action="store_true", help="emit RISC-V assembly")
+    parser.add_argument("--emit-llvm", action="store_true", help="compile via LLVM pipeline")
+    # output should be identical
+    parser.add_argument("--interpret", action="store_true", help="interpret aziz mlir")
+    parser.add_argument("--execute-llvm", action="store_true", help="execute LLVM executable")
+    parser.add_argument("--execute-riscv", action="store_true", help="execute RISC-V assembly in qemu emulator")
+    parser.add_argument("--all", action="store_true", help="emit all stages")
+    args = parser.parse_args()
+
+    if args.all:
+        args.emit_source = args.emit_ast = args.emit_mlir = args.emit_llvm = args.emit_riscv = True
+        args.interpret = args.execute_riscv = args.execute_llvm = True
+
+    assert args.file.endswith(".aziz")
+    src = Path(args.file).read_text()
+
+    # source -> ast -> aziz dialect
+    module_ast = AzizParser(None, src).parse_module()
+    module_op = IRGen().ir_gen_module(module_ast)
+
+    # interpret
+    captured_output = StringIO()
+    interpreter = Interpreter(module_op)
+    interpreter.register_implementations(AzizFunctions())
+    with redirect_stdout(captured_output):
+        interpreter.call_op("main", ())
+    interpreter_result = captured_output.getvalue()
+
+    # a) aziz dialect -> lowered aziz mlir -> llvm dialect mlir (mlir-opt) -> llvm ir (mlir-translate) -> executable (llc + clang) -> execute
+    module_op_llvm = module_op.clone()
+    lower_llvm_mut(module_op_llvm)
+    llvm_ir, llvm_exec_out, llvm_exec_err = execute_llvm(module_op_llvm)
+
+    # b) aziz dialect -> lowered aziz mlir -> riscv dialect mlir -> riscv assembly codegen -> execute in qemu
+    module_op_riscv = module_op.clone()
+    lower_aziz_mut(module_op_riscv)
+    lower_riscv_mut(module_op_riscv)
+    io = StringIO()
+    riscv.print_assembly(module_op_riscv, io)
+    riscv_asm = format_assembly(io.getvalue())  # Rename riscv_ir -> riscv_asm for consistency
+    emulator_result = emulate_riscv(riscv_asm, entry_symbol="main")
+
+    # print
+    w = 50
+    print_block = lambda title, content: print(f"\033[90m╭{'─' * w}╮\033[0m\n\033[90m│{' ' * ((w - len(title) - 2) // 2)} {title} {' ' * (w - len(title) - 2 - (w - len(title) - 2) // 2)}│\033[0m\n\033[90m╰{'─' * w}╯\033[0m\n\n{content}\n")
+    if args.emit_source:
+        print_block("source", src)
+    if args.emit_ast:
+        print_block("ast", dump(module_ast))
+    if args.emit_mlir:
+        print_block("aziz dialect mlir", module_op)
+    if args.emit_llvm:
+        print_block("llvm ir", llvm_ir)
+    if args.emit_riscv:
+        print_block("riscv assembly", riscv_asm)
+    if args.interpret:
+        print_block("interpreter output", interpreter_result)
+    if args.execute_riscv:
+        print_block("riscv emulator output", emulator_result)
+    if args.execute_llvm:
+        print_block("llvm output", llvm_exec_out)
+        assert not llvm_exec_err, f"llvm produced stderr: {llvm_exec_err}"
 
 
 def lower_aziz_mut(module_op: ModuleOp):
     ctx = context()
-    # drop unused functions, inline one-liner functions
-    OptimizeAzizPass().apply(ctx, module_op)
+    OptimizeAzizPass().apply(ctx, module_op)  # drop unused functions, inline one-liner functions
+    LowerAzizPass().apply(ctx, module_op)  # lower to arith, func, scf, printf, llvm.global for strings
+    LowerAffinePass().apply(ctx, module_op)
+    CanonicalizePass().apply(ctx, module_op)  # automatically look up and apply canonicalization patterns for each op
+    module_op.verify()
 
-    # lower to arith, func, scf, printf, llvm.global for strings
+
+def lower_llvm_mut(module_op: ModuleOp):
+    ctx = context()
     LowerAzizPass().apply(ctx, module_op)
     LowerAffinePass().apply(ctx, module_op)
-
-    # automatically look up and apply canonicalization patterns for each op
     CanonicalizePass().apply(ctx, module_op)
+    LowerPrintfToLLVMCallPass().apply(ctx, module_op)
     module_op.verify()
 
 
@@ -89,72 +150,20 @@ def lower_riscv_mut(module_op: ModuleOp):
     module_op.verify()
 
 
-def print_block(title, content):
-    width = 50
-    title_text = f" {title} "
-    padding = (width - 2 - len(title_text)) // 2
-    print(f"\033[90m╭{'─' * (width - 2)}╮\033[0m")
-    print(f"\033[90m│{' ' * padding}{title_text}{' ' * (width - 2 - len(title_text) - padding)}│\033[0m")
-    print(f"\033[90m╰{'─' * (width - 2)}╯\033[0m")
-    print(f"\n{content}\n")
-
-
-def main():
-    parser = argparse.ArgumentParser(description="aziz language")
-    parser.add_argument("file", help="source file")
-    parser.add_argument("--source", action="store_true", help="emit source code")
-    parser.add_argument("--ast", action="store_true", help="emit abstract syntax tree")
-    parser.add_argument("--mlir", action="store_true", help="emit mlir before and after optimization")
-    parser.add_argument("--interpret", action="store_true", help="interpret aziz mlir")
-    parser.add_argument("--asm", action="store_true", help="emit RISC-V assembly")
-    parser.add_argument("--execute", action="store_true", help="execute RISC-V assembly")
-    parser.add_argument("--all", action="store_true", help="emit all stages")
-    args = parser.parse_args()
-    if args.all:
-        args.source = args.ast = args.mlir = args.interpret = args.asm = args.execute = True
-
-    assert args.file.endswith(".aziz")
-    src = Path(args.file).read_text()
-
-    # source -> ast -> aziz mlir -> lowered mlir
-    module_ast = AzizParser(None, src).parse_module()
-    module_op = IRGen().ir_gen_module(module_ast)
-    orig1 = module_op.clone()
-    lower_aziz_mut(module_op)
-
-    # interpret
-    old_stdout = sys.stdout
-    sys.stdout = captured_output = StringIO()
-    interpreter = Interpreter(orig1)
-    interpreter.register_implementations(AzizFunctions())
-    interpreter.call_op("main", ())
-    sys.stdout = old_stdout
-    interpreter_result = captured_output.getvalue()
-
-    # lowered mlir -> riscv mlir
-    orig2 = module_op.clone()
-    lower_riscv_mut(module_op)
-
-    # emulate
-    io = StringIO()
-    riscv.print_assembly(module_op, io)
-    source = format_assembly(io.getvalue())
-    result = emulate_riscv(source, entry_symbol="main")
-
-    # print results
-    if args.source:
-        print_block("source", src)
-    if args.ast:
-        print_block("ast", dump(module_ast))
-    if args.mlir:
-        print_block("mlir before optimization", orig1)
-        print_block("mlir after optimization", orig2)
-    if args.interpret:
-        print_block("interpreter output", interpreter_result)
-    if args.asm:
-        print_block("riscv assembly", source)
-    if args.execute:
-        print_block("emulator output", result)
+@lru_cache(None)
+def context() -> Context:
+    ctx = Context()
+    ctx.load_dialect(aziz.Aziz)
+    ctx.load_dialect(affine.Affine)
+    ctx.load_dialect(arith.Arith)
+    ctx.load_dialect(Builtin)
+    ctx.load_dialect(func.Func)
+    ctx.load_dialect(printf.Printf)
+    ctx.load_dialect(riscv_func.RISCV_Func)
+    ctx.load_dialect(riscv_scf.RISCV_Scf)
+    ctx.load_dialect(riscv.RISCV)
+    ctx.load_dialect(scf.Scf)
+    return ctx
 
 
 if __name__ == "__main__":

@@ -19,5 +19,5 @@ fmt:
 .PHONY: run
 run:
 	for file in examples/*.aziz; do \
-		uv run aziz-lang/main.py $$file --interpret --execute; \
+		uv run aziz-lang/main.py $$file --interpret --execute-riscv --execute-llvm; \
 	done

@@ -1,7 +1,8 @@
 from dialects import aziz
 from xdsl.context import Context
 from xdsl.dialects import arith, func, llvm, printf, scf
-from xdsl.dialects.builtin import AnyFloat, DenseIntOrFPElementsAttr, FloatAttr, IntegerAttr, IntegerType, ModuleOp, StringAttr, VectorType, i8
+from xdsl.dialects.builtin import AnyFloat, ArrayAttr, FloatAttr, IntegerAttr, IntegerType, ModuleOp, StringAttr, i8
+from xdsl.ir import Block
 from xdsl.passes import ModulePass
 from xdsl.pattern_rewriter import GreedyRewritePatternApplier, PatternRewriter, PatternRewriteWalker, RewritePattern, op_type_rewrite_pattern
 from xdsl.rewriter import InsertPoint
@@ -44,9 +45,7 @@ class LessThanEqualOpLowering(RewritePattern):
         if isinstance(op.lhs.type, AnyFloat):
             rewriter.replace_op(op, arith.CmpfOp(op.lhs, op.rhs, "ole"))  # ordered less equal
         else:
-            # xDSL's sle is buggy: it computes !(lhs < rhs) = lhs >= rhs instead of lhs <= rhs
-            # work around by swapping operands: sle(rhs, lhs) computes !(rhs < lhs) = lhs <= rhs
-            rewriter.replace_op(op, arith.CmpiOp(op.rhs, op.lhs, "sle"))  # SWAPPED!
+            rewriter.replace_op(op, arith.CmpiOp(op.lhs, op.rhs, "sle"))  # signed less equal
 
 
 class CastIntToFloatOpLowering(RewritePattern):
@@ -99,15 +98,48 @@ class ReturnOpLowering(RewritePattern):
 
 class FuncOpLowering(RewritePattern):
     @op_type_rewrite_pattern
-    def match_and_rewrite(self, op: aziz.FuncOp, rewriter: PatternRewriter):
-        new_op = func.FuncOp(op.sym_name.data, op.function_type, rewriter.move_region_contents_to_new_regions(op.body), visibility=op.sym_visibility)
+    def match_and_rewrite(self, op: aziz.FuncOp, rewriter: PatternRewriter):  # strings become pointers
+        # convert inputs/outputs
+        convert_type = lambda t: llvm.LLVMPointerType() if isinstance(t, aziz.StringType) else t
+        inputs = [convert_type(t) for t in op.function_type.inputs]
+        outputs = [convert_type(t) for t in op.function_type.outputs]
+        new_type = func.FunctionType.from_lists(inputs, outputs)
+
+        # move region
+        new_body = rewriter.move_region_contents_to_new_regions(op.body)
+
+        # update block arguments in new body
+        for block in list(new_body.blocks):
+            new_arg_types = [convert_type(arg.type) for arg in block.args]
+            if new_arg_types == [arg.type for arg in block.args]:
+                continue
+
+            # replace args uses
+            new_block = Block(arg_types=new_arg_types)
+            for old_arg, new_arg in zip(block.args, new_block.args):
+                old_arg.replace_by(new_arg)
+
+            # move ops
+            ops = list(block.ops)
+            for o in ops:
+                o.detach()
+                new_block.add_op(o)
+
+            # replace block
+            idx = next(i for i, b in enumerate(new_body.blocks) if b is block)
+            new_body.detach_block(block)
+            new_body.insert_block(new_block, idx)
+
+        new_op = func.FuncOp(op.sym_name.data, new_type, new_body, visibility=op.sym_visibility)
         rewriter.replace_op(op, new_op)
 
 
 class CallOpLowering(RewritePattern):
     @op_type_rewrite_pattern
     def match_and_rewrite(self, op: aziz.CallOp, rewriter: PatternRewriter):
-        rewriter.replace_op(op, func.CallOp(op.callee, op.arguments, op.res.types))
+        convert_type = lambda t: llvm.LLVMPointerType() if isinstance(t, aziz.StringType) else t
+        res_types = [convert_type(t) for t in op.res.types]
+        rewriter.replace_op(op, func.CallOp(op.callee, op.arguments, res_types))
 
 
 #
@@ -179,9 +211,10 @@ class StringConstantOpLowering(RewritePattern):
         self._counter += 1
         self._string_cache[string_content] = global_name
 
+        # Use ArrayAttr for initializer to match llvm.array type in mlir-translate
         array_type = llvm.LLVMArrayType.from_size_and_type(len(encoded_val), i8)
-        vector_type = VectorType(i8, [len(encoded_val)])
-        initial_value = DenseIntOrFPElementsAttr.from_list(vector_type, list(encoded_val))  # requires tensor/vector type, not LLVM array type
+        initial_value = ArrayAttr([IntegerAttr(b, i8) for b in encoded_val])
+
         global_op = llvm.GlobalOp(array_type, global_name, linkage=llvm.LinkageAttr("internal"), constant=True, value=initial_value)
         rewriter.insert_op(global_op, InsertPoint.at_start(module.body.blocks[0]))
 
