@@ -1,3 +1,4 @@
+from qemu import STDOUT_ADDR
 from xdsl.context import Context
 from xdsl.dialects import arith, func, llvm, printf, riscv, riscv_func, scf
 from xdsl.dialects.builtin import IntegerAttr, ModuleOp, StringAttr, SymbolRefAttr, UnrealizedConversionCastOp
@@ -7,19 +8,11 @@ from xdsl.passes import ModulePass
 from xdsl.pattern_rewriter import PatternRewriter, PatternRewriteWalker, RewritePattern, op_type_rewrite_pattern
 from xdsl.rewriter import InsertPoint
 
-STACK_FRAME_SIZE_BYTES = 104  # ra + 12 s-registers = 13 * 8
-MMIO_ADDRESS = 0x10000000
-
-#
-# utility functions
-#
-
 
 def extract_register_name(reg_type) -> str | None:
     """extract register name from register type, returns None if not a named register"""
-    if not isinstance(reg_type, (riscv.IntRegisterType, riscv.FloatRegisterType)):
-        return None
-    if not hasattr(reg_type, "register_name") or not reg_type.register_name:
+    is_valid = isinstance(reg_type, (riscv.IntRegisterType, riscv.FloatRegisterType)) and hasattr(reg_type, "register_name") and reg_type.register_name
+    if not is_valid:
         return None
     name = reg_type.register_name
     return name.data if isinstance(name, StringAttr) else name
@@ -44,11 +37,8 @@ def unwrap_conversion_cast(value):
 
 def is_string_label_op(owner) -> bool:
     """check if operation produces a string label (for printf)"""
-    if isinstance(owner, riscv.LiOp) and isinstance(owner.immediate, riscv.LabelAttr):
-        return True
-    if isinstance(owner, RISCVLaOp) and isinstance(owner.label, riscv.LabelAttr):
-        return True
-    return False
+    is_string_label_op = isinstance(owner, riscv.LiOp) and isinstance(owner.immediate, riscv.LabelAttr) or isinstance(owner, RISCVLaOp) and isinstance(owner.label, riscv.LabelAttr)
+    return is_string_label_op
 
 
 #
@@ -426,7 +416,7 @@ class AddPrintRuntimePass(ModulePass):
         """generate string printing loop: iterate chars until null terminator"""
         ops = [
             RISCVDirectiveOp("mv", "t0, a0"),
-            RISCVDirectiveOp("li", f"t2, {MMIO_ADDRESS}"),
+            RISCVDirectiveOp("li", f"t2, {STDOUT_ADDR}"),
             RISCVLabelOp("_print_string_loop"),
             RISCVDirectiveOp("lbu", "t1, 0(t0)"),
             RISCVDirectiveOp("beqz", "t1, _print_string_end"),
@@ -443,7 +433,7 @@ class AddPrintRuntimePass(ModulePass):
     def _add_print_int_body(self, block):
         """generate integer printing: handle zero/negative, extract digits to stack, print in reverse"""
         ops = [
-            RISCVDirectiveOp("li", f"t2, {MMIO_ADDRESS}"),
+            RISCVDirectiveOp("li", f"t2, {STDOUT_ADDR}"),
             # zero check
             RISCVDirectiveOp("bnez", "a0, _p_int_nonzero"),
             RISCVDirectiveOp("li", "t1, 48"),  # '0'
@@ -471,7 +461,7 @@ class AddPrintRuntimePass(ModulePass):
     def _add_print_float_body(self, block):
         """generate float printing: print integer part, dot, then 6 decimal digits"""
         ops = [
-            RISCVDirectiveOp("li", f"t2, {MMIO_ADDRESS}"),
+            RISCVDirectiveOp("li", f"t2, {STDOUT_ADDR}"),
             # convert to int and check sign
             RISCVDirectiveOp("fcvt.w.d", "t0, fa0, rtz"),
             RISCVDirectiveOp("bgez", "t0, _pf_int_pos"),
@@ -533,6 +523,8 @@ class AddPrintRuntimePass(ModulePass):
 class AddRecursionSupportPass(ModulePass):
     """add prologue/epilogue to save/restore ra and callee-saved registers"""
 
+    stack_frame_size_bytes = 104  # = 13 * 8 = ra + 12 s-registers (for recursion support)
+
     name = "add-recursion-support"
 
     def apply(self, _: Context, op: ModuleOp) -> None:
@@ -555,7 +547,7 @@ class AddRecursionSupportPass(ModulePass):
         first_op = list(block.ops)[0]
 
         # allocate stack: ra + 12 s-registers = 104 bytes
-        block.insert_op_before(RISCVAddSpOp(-STACK_FRAME_SIZE_BYTES), first_op)
+        block.insert_op_before(RISCVAddSpOp(-self.stack_frame_size_bytes), first_op)
         block.insert_op_before(RISCVSaveRaOp(), first_op)
 
         # save s0-s11 at offsets 8, 16, 24, ..., 96
@@ -574,7 +566,7 @@ class AddRecursionSupportPass(ModulePass):
                     block.insert_op_before(RISCVDirectiveOp("ld", f"s{i}, {8 + i*8}(sp)"), ret)
 
                 block.insert_op_before(RISCVRestoreRaOp(), ret)
-                block.insert_op_before(RISCVAddSpOp(STACK_FRAME_SIZE_BYTES), ret)
+                block.insert_op_before(RISCVAddSpOp(self.stack_frame_size_bytes), ret)
 
 
 #
