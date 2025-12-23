@@ -1,10 +1,11 @@
+from functools import lru_cache
 from typing import Callable
 
 from qemu import STDOUT_ADDR
 from xdsl.context import Context
 from xdsl.dialects import arith, func, llvm, printf, riscv, riscv_func, scf
 from xdsl.dialects.builtin import IntegerAttr, ModuleOp, StringAttr, SymbolRefAttr, UnrealizedConversionCastOp
-from xdsl.ir import Attribute, Block, Region, SSAValue
+from xdsl.ir import Attribute, Block, Operation, Region, SSAValue
 from xdsl.irdl import attr_def, base, irdl_op_definition, result_def
 from xdsl.passes import ModulePass
 from xdsl.pattern_rewriter import PatternRewriter, PatternRewriteWalker, RewritePattern, op_type_rewrite_pattern
@@ -522,10 +523,77 @@ class MapToPhysicalRegistersPass(ModulePass):
     name = "map-to-physical-registers"
 
     def apply(self, ctx: Context, op: ModuleOp):
+        # walk through all operations and replace virtual registers with physical ones
         for f in [o for o in op.walk() if isinstance(o, riscv_func.FuncOp)]:
-            self._process_func(f)
+            for op in list(f.walk()) + [f]:
+                get_physical_reg = self._create_mapping(f)
+                self._process_op(op, get_physical_reg)
 
-    def _process_func(self, f: riscv_func.FuncOp) -> None:
+    def _process_op(self, op: Operation, get_physical_reg: Callable[[Attribute], Attribute]) -> None:
+        # (1) remap operation result types
+
+        target_op = op
+        if hasattr(op, "result_types"):
+            new_result_types = [get_physical_reg(t) for t in op.result_types]
+            if new_result_types == list(op.result_types):
+                return
+
+            # create new operation with physical register types
+            new_op = op.__class__.create(operands=op.operands, result_types=new_result_types, attributes=op.attributes, successors=op.successors)
+            # move regions from old to new operation
+            for idx, region in enumerate(op.regions):
+                region.move_blocks(new_op.regions[idx])
+
+            # replace old operation with new one in the IR
+            if not op.parent_block():
+                target_op = new_op
+                return
+
+            op.parent_block().insert_op_before(new_op, op)
+            for idx, result in enumerate(op.results):
+                result.replace_by(new_op.results[idx])
+            op.detach()
+            target_op = new_op
+
+        # (2) remap region block argument types
+
+        all_blocks = [(region, block) for region in target_op.regions for block in list(region.blocks)]
+        for region, block in all_blocks:
+            new_arg_types = [get_physical_reg(arg.type) for arg in block.args]
+
+            # skip if no type changes needed
+            if not any(new_type != arg.type for new_type, arg in zip(new_arg_types, block.args)):
+                return
+
+            # create new block with physical register types
+            new_block = Block(arg_types=new_arg_types)
+            # replace all uses of old arguments with new arguments
+            for old_arg, new_arg in zip(block.args, new_block.args):
+                old_arg.replace_by(new_arg)
+            # move all operations from old block to new block
+            while block.ops:
+                first_op = block.first_op
+                first_op.detach()
+                new_block.add_op(first_op)
+
+            # replace old block with new block in the region
+            block_idx = next(i for i, blk in enumerate(region.blocks) if blk is block)
+            region.detach_block(block)
+            region.insert_block(new_block, block_idx)
+
+        # (3) update function signature to use physical register types
+
+        if not isinstance(target_op, (riscv_func.FuncOp, func.FuncOp)):
+            return
+        if not target_op.body.blocks:
+            return
+
+        input_types = [arg.type for arg in target_op.body.blocks[0].args]
+        output_types = [get_physical_reg(t) for t in target_op.function_type.outputs]
+        target_op.function_type = func.FunctionType.from_lists(input_types, output_types)
+
+    @lru_cache(maxsize=None)
+    def _create_mapping(self, f: riscv_func.FuncOp) -> Callable[[Attribute], Attribute]:
         # (1) collect virtual registers
 
         v_int, v_flt = set(), set()
@@ -542,9 +610,6 @@ class MapToPhysicalRegistersPass(ModulePass):
         v_int = sorted(v_int, key=lambda x: int(x.split("_")[1]))
         v_flt = sorted(v_flt, key=lambda x: int(x.split("_")[1]))
 
-        if not v_int and not v_flt:
-            return
-
         # (2) create mapping: virtual -> physical
 
         p_int = [f"s{i}" for i in range(12)] + [f"t{i}" for i in range(7)]  # s0-s11, t0-t6
@@ -556,9 +621,7 @@ class MapToPhysicalRegistersPass(ModulePass):
         imap = {v: p_int[i] for i, v in enumerate(v_int)}
         fmap = {v: p_flt[i] for i, v in enumerate(v_flt)}
 
-        # (3) apply mapping: walk through all operations and replace virtual registers with physical ones
-
-        def get_physical(register_type):
+        def get_physical_reg(register_type: Attribute) -> Attribute:
             # call imap/fmap to get physical register type
             reg_name = self.get_reg_name(register_type)
             if reg_name in imap:
@@ -567,68 +630,9 @@ class MapToPhysicalRegistersPass(ModulePass):
                 return riscv.FloatRegisterType.from_name(fmap[reg_name])
             return register_type
 
-        for op in list(f.walk()) + [f]:
-            # remap operation result types
-            target_op = op
-            if hasattr(op, "result_types"):
-                new_result_types = [get_physical(t) for t in op.result_types]
-                if new_result_types == list(op.result_types):
-                    continue
+        return get_physical_reg
 
-                # create new operation with physical register types
-                new_op = op.__class__.create(operands=op.operands, result_types=new_result_types, attributes=op.attributes, successors=op.successors)
-                # move regions from old to new operation
-                for idx, region in enumerate(op.regions):
-                    region.move_blocks(new_op.regions[idx])
-
-                # replace old operation with new one in the IR
-                if not op.parent_block():
-                    target_op = new_op
-                    continue
-
-                op.parent_block().insert_op_before(new_op, op)
-                for idx, result in enumerate(op.results):
-                    result.replace_by(new_op.results[idx])
-                op.detach()
-                target_op = new_op
-
-            # remap region block argument types
-            all_blocks = [(region, block) for region in target_op.regions for block in list(region.blocks)]
-            for region, block in all_blocks:
-                new_arg_types = [get_physical(arg.type) for arg in block.args]
-
-                # skip if no type changes needed
-                if not any(new_type != arg.type for new_type, arg in zip(new_arg_types, block.args)):
-                    continue
-
-                # create new block with physical register types
-                new_block = Block(arg_types=new_arg_types)
-                # replace all uses of old arguments with new arguments
-                for old_arg, new_arg in zip(block.args, new_block.args):
-                    old_arg.replace_by(new_arg)
-                # move all operations from old block to new block
-                while block.ops:
-                    first_op = block.first_op
-                    first_op.detach()
-                    new_block.add_op(first_op)
-
-                # replace old block with new block in the region
-                block_idx = next(i for i, blk in enumerate(region.blocks) if blk is block)
-                region.detach_block(block)
-                region.insert_block(new_block, block_idx)
-
-            # update function signature to use physical register types
-            if not isinstance(target_op, (riscv_func.FuncOp, func.FuncOp)):
-                continue
-            if not target_op.body.blocks:
-                continue
-
-            input_types = [arg.type for arg in target_op.body.blocks[0].args]
-            output_types = [get_physical(t) for t in target_op.function_type.outputs]
-            target_op.function_type = func.FunctionType.from_lists(input_types, output_types)
-
-    @staticmethod
-    def get_reg_name(reg_type) -> str | None:
+    def get_reg_name(self, reg_type: Attribute) -> str | None:
         if not isinstance(reg_type, (riscv.IntRegisterType, riscv.FloatRegisterType)):
             return None
         name = getattr(reg_type, "register_name", None)
