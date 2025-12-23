@@ -20,7 +20,7 @@ from frontend.parser import AzizParser
 from interpreter import AzizFunctions
 from qemu import emulate_riscv
 from rewrites.lower import LowerAzizPass
-from rewrites.lower_riscv import AddPrintRuntimePass, AddRecursionSupportPass, CustomLowerScfToRiscvPass, EmitDataSectionPass, LowerPrintfPass, LowerSelectPass, MapToPhysicalRegistersPass, RemoveUnprintableOpsPass
+from rewrites.lower_riscv import AddPrintRuntimePass, AddRecursionSupportPass, CustomLowerScfToRiscvPass, EmitDataSectionPass, LowerPrintfPass, LowerSelectPass, MapToPhysicalRegistersPass, RemoveUnprintableOpsPass, format_assembly
 from rewrites.optimize import OptimizeAzizPass
 from xdsl.backend.riscv.lowering.convert_arith_to_riscv import ConvertArithToRiscvPass
 from xdsl.backend.riscv.lowering.convert_func_to_riscv_func import ConvertFuncToRiscvFuncPass
@@ -128,11 +128,11 @@ def main():
     # emulate
     io = StringIO()
     riscv.print_assembly(module_op, io)
-    source = io.getvalue()
+    source = format_assembly(io.getvalue())
     result = emulate_riscv(source, entry_symbol="main")
 
     # print results
-    print_block = lambda title, content: print(f"\033[90m{'-' * 100}\n{title}\n{'-' * 100}\033[0m\n\n{content}\n")
+    print_block = lambda title, content: print(f"\033[90m{'-' * 70}\n{title}\n{'-' * 70}\033[0m\n\n{content}\n")
     if args.source:
         print_block("source", src)
     if args.ast:

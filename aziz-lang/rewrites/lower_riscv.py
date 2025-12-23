@@ -233,6 +233,10 @@ class AddPrintRuntimePass(ModulePass):
     name = "add-print-runtime"
 
     def apply(self, ctx: Context, op: ModuleOp) -> None:
+        has_prints = any(isinstance(o, printf.PrintFormatOp) for o in op.walk())
+        if not has_prints:
+            return
+
         self._add_func(op, "_print_string", "a0", self._print_string_asm)
         self._add_func(op, "_print_int", "a0", self._print_int_asm)
         self._add_func(op, "_print_float", "fa0", self._print_float_asm)
@@ -636,3 +640,19 @@ class MapToPhysicalRegistersPass(ModulePass):
             return None
         name = getattr(reg_type, "register_name", None)
         return name.data if isinstance(name, StringAttr) else name
+
+
+#
+# utils
+#
+
+
+def format_assembly(source: str) -> str:
+    lines = []
+    for line in source.split("\n"):
+        stripped = line.lstrip()
+        if stripped.startswith(".") or stripped.endswith(":") or not stripped:
+            lines.append(stripped)
+        else:
+            lines.append("\t" + stripped)
+    return "\n".join(lines)
