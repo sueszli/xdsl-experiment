@@ -514,7 +514,7 @@ class CustomLowerScfToRiscvPass(ModulePass):
 
 
 #
-# register allocation
+# map virtual registers to physical registers
 #
 
 
@@ -526,42 +526,40 @@ class MapToPhysicalRegistersPass(ModulePass):
             self._process_func(f)
 
     def _process_func(self, f):
+        # (1) collect virtual registers
+
         v_int, v_flt = set(), set()
 
-        def get_reg_name(reg_type) -> str | None:
-            if not isinstance(reg_type, (riscv.IntRegisterType, riscv.FloatRegisterType)):
-                return None
-            name = getattr(reg_type, "register_name", None)
-            return name.data if isinstance(name, StringAttr) else name
-
-        # Collect virtuals
         is_virtual_reg = lambda name, prefix: name and name.startswith(prefix)
         for o in f.walk():
             for r in list(o.results) + [a for b in o.regions for bb in b.blocks for a in bb.args]:
-                if n := get_reg_name(r.type):
+                if n := self.get_reg_name(r.type):
                     if is_virtual_reg(n, "j_"):
                         v_int.add(n)
                     elif is_virtual_reg(n, "fj_"):
                         v_flt.add(n)
 
+        v_int = sorted(v_int, key=lambda x: int(x.split("_")[1]))
+        v_flt = sorted(v_flt, key=lambda x: int(x.split("_")[1]))
+
         if not v_int and not v_flt:
             return
 
-        # Map to physical
-        p_int = [f"s{i}" for i in range(12)] + [f"t{i}" for i in range(7)]
-        p_flt = [f"fs{i}" for i in range(12)] + [f"ft{i}" for i in range(12)]
+        # (2) create mapping: virtual -> physical
 
-        if len(v_int) > len(p_int):
-            raise RuntimeError(f"too many int regs: {len(v_int)}")
-        if len(v_flt) > len(p_flt):
-            raise RuntimeError(f"too many float regs: {len(v_flt)}")
+        p_int = [f"s{i}" for i in range(12)] + [f"t{i}" for i in range(7)]  # s0-s11, t0-t6
+        p_flt = [f"fs{i}" for i in range(12)] + [f"ft{i}" for i in range(12)]  # fs0-fs11, ft0-ft11
 
-        imap = {v: p_int[i] for i, v in enumerate(sorted(v_int, key=lambda x: int(x.split("_")[1])))}
-        fmap = {v: p_flt[i] for i, v in enumerate(sorted(v_flt, key=lambda x: int(x.split("_")[1])))}
+        assert len(v_int) <= len(p_int), f"too many int regs: {len(v_int)}"
+        assert len(v_flt) <= len(p_flt), f"too many float regs: {len(v_flt)}"
 
-        # Apply mapping
+        imap = {v: p_int[i] for i, v in enumerate(v_int)}
+        fmap = {v: p_flt[i] for i, v in enumerate(v_flt)}
+
+        # (3) apply mapping
+
         def remap_type(t):
-            n = get_reg_name(t)
+            n = self.get_reg_name(t)
             if n in imap:
                 return riscv.IntRegisterType.from_name(imap[n])
             if n in fmap:
@@ -611,3 +609,10 @@ class MapToPhysicalRegistersPass(ModulePass):
                     in_t = [a.type for a in target_op.body.blocks[0].args]
                     out_t = [remap_type(t) for t in target_op.function_type.outputs]
                     target_op.function_type = func.FunctionType.from_lists(in_t, out_t)
+
+    @staticmethod
+    def get_reg_name(reg_type) -> str | None:
+        if not isinstance(reg_type, (riscv.IntRegisterType, riscv.FloatRegisterType)):
+            return None
+        name = getattr(reg_type, "register_name", None)
+        return name.data if isinstance(name, StringAttr) else name
