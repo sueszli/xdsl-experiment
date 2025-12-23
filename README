@@ -16,22 +16,7 @@
 ```
 brew install qemu
 find examples -name "*.aziz"
-
-uv run aziz-lang/main.py examples/hello.aziz --all
-uv run aziz-lang/main.py examples/if.aziz --all
-uv run aziz-lang/main.py examples/optimize.aziz --all
 uv run aziz-lang/main.py examples/rec.aziz --all
-uv run aziz-lang/main.py examples/string.aziz --all
-uv run aziz-lang/main.py examples/string-dedup.aziz --all
-uv run aziz-lang/main.py examples/test.aziz --all
-
-uv run aziz-lang/main.py examples/hello.aziz --interpret --execute
-uv run aziz-lang/main.py examples/if.aziz --interpret --execute
-uv run aziz-lang/main.py examples/optimize.aziz --interpret --execute
-uv run aziz-lang/main.py examples/rec.aziz --interpret --execute
-uv run aziz-lang/main.py examples/string.aziz --interpret --execute
-uv run aziz-lang/main.py examples/string-dedup.aziz --interpret --execute
-uv run aziz-lang/main.py examples/test.aziz --interpret --execute
 ```
 
 references:

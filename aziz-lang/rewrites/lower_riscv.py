@@ -2,7 +2,7 @@ from qemu import STDOUT_ADDR
 from xdsl.context import Context
 from xdsl.dialects import arith, func, llvm, printf, riscv, riscv_func, scf
 from xdsl.dialects.builtin import IntegerAttr, ModuleOp, StringAttr, SymbolRefAttr, UnrealizedConversionCastOp
-from xdsl.ir import Attribute, Block, Region
+from xdsl.ir import Attribute, Block, Region, SSAValue
 from xdsl.irdl import attr_def, base, irdl_op_definition, result_def
 from xdsl.passes import ModulePass
 from xdsl.pattern_rewriter import PatternRewriter, PatternRewriteWalker, RewritePattern, op_type_rewrite_pattern
@@ -190,6 +190,7 @@ class LowerPrintfPass(ModulePass):
     def apply(self, ctx: Context, op: ModuleOp):
         unwrap_cast = lambda val: (val.owner.operands[0], val.owner) if isinstance(val.owner, UnrealizedConversionCastOp) else (val, None)
 
+        # printf.PrintFormatOp -> calls to one of the _print_* runtime functions
         for p in [o for o in op.walk() if isinstance(o, printf.PrintFormatOp) if o.operands]:
             val, cast = unwrap_cast(p.operands[0])
             is_lbl = isinstance(getattr(val.owner, "label", None), riscv.LabelAttr) or isinstance(getattr(val.owner, "immediate", None), riscv.LabelAttr)
@@ -207,7 +208,13 @@ class LowerPrintfPass(ModulePass):
             if cast:
                 cast.detach()
 
-    def _emit(self, op, arg, fn, is_float):
+    def _emit(self, op: printf.PrintFormatOp, arg: SSAValue, fn: str, is_float: bool) -> None:
+        # before:
+        #   printf.print_format_op(%result)
+        #
+        # after:
+        #   addi a0, t0, 0     # copy value from source register (e.g. t0) to a0 (by adding 0)
+        #   call _print_int    # call the _print_int function (from runtime)
         reg_type = riscv.FloatRegisterType.from_name("fa0") if is_float else riscv.IntRegisterType.from_name("a0")
         mv = riscv.FMvDOp(arg, rd=reg_type) if is_float else riscv.AddiOp(arg, 0, rd=reg_type)
         op.parent_block().insert_op_before(mv, op)
@@ -246,13 +253,47 @@ class AddPrintRuntimePass(ModulePass):
 
     def _emit_digits(self, lbl):
         # Extract digits: push to stack, then pop and print
-        return [f"li t3, 10", f"li t5, 0", f"{lbl}_loop:", f"beqz t0, {lbl}_print", f"rem t1, t0, t3", f"div t0, t0, t3", f"addi t1, t1, 48", f"addi sp, sp, -16", f"sd t1, 0(sp)", f"addi t5, t5, 1", f"j {lbl}_loop", f"{lbl}_print:", f"beqz t5, {lbl}_end", f"ld t1, 0(sp)", f"addi sp, sp, 16", f"sb t1, 0(t2)", f"addi t5, t5, -1", f"j {lbl}_print", f"{lbl}_end:"]  # to ascii
+        return [
+            f"li t3, 10",
+            f"li t5, 0",
+            f"{lbl}_loop:",
+            f"beqz t0, {lbl}_print",
+            f"rem t1, t0, t3",
+            f"div t0, t0, t3",
+            f"addi t1, t1, 48",
+            f"addi sp, sp, -16",
+            f"sd t1, 0(sp)",
+            f"addi t5, t5, 1",
+            f"j {lbl}_loop",
+            f"{lbl}_print:",
+            f"beqz t5, {lbl}_end",
+            f"ld t1, 0(sp)",
+            f"addi sp, sp, 16",
+            f"sb t1, 0(t2)",
+            f"addi t5, t5, -1",
+            f"j {lbl}_print",
+            f"{lbl}_end:",
+        ]  # to ascii
 
     def _print_newline(self):
-        return [f"li t1, 10", f"sb t1, 0(t2)", "ret"]
+        return [
+            f"li t1, 10",
+            f"sb t1, 0(t2)",
+            "ret",
+        ]
 
     def _print_string_asm(self):
-        return [f"mv t0, a0", f"li t2, {STDOUT_ADDR}", "_ps_loop:", "lbu t1, 0(t0)", "beqz t1, _ps_done", "sb t1, 0(t2)", "addi t0, t0, 1", "j _ps_loop", "_ps_done:"] + self._print_newline()
+        return [
+            f"mv t0, a0",
+            f"li t2, {STDOUT_ADDR}",
+            "_ps_loop:",
+            "lbu t1, 0(t0)",
+            "beqz t1, _ps_done",
+            "sb t1, 0(t2)",
+            "addi t0, t0, 1",
+            "j _ps_loop",
+            "_ps_done:",
+        ] + self._print_newline()
 
     def _print_int_asm(self):
         return (
