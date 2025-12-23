@@ -18,90 +18,102 @@ class PrintFormatOpLowering(RewritePattern):
         arg_type = arg.type
         module_op = op.get_toplevel_object()
 
+        # delegate to specific handlers based on type
         if isinstance(arg_type, llvm.LLVMPointerType):
-            # assume direct string printing: printf(str)
-            fmt_str_ptr = self._get_or_create_global_string(module_op, "%s\n", "fmt_s")
-            self._create_printf_call(op, rewriter, fmt_str_ptr, [arg])
-
+            self._lower_string(op, rewriter, module_op, arg)
         elif isinstance(arg_type, (builtin.IntegerType, builtin.IndexType)):
-            # print integer: printf("%d\n", val)
-            fmt_str_ptr = self._get_or_create_global_string(module_op, "%d\n", "fmt_d")
-
-            # Cast to i32 for %d
-            val = arg
-            if isinstance(arg_type, builtin.IndexType) or arg_type.width.data != 32:
-                cast = arith.index_cast(val, builtin.i32) if isinstance(arg_type, builtin.IndexType) else (arith.TruncIOp(val, builtin.i32) if arg_type.width.data > 32 else arith.ExtSIOp(val, builtin.i32))
-                rewriter.insert_op(cast, InsertPoint.before(op))
-                val = cast.result
-
-            self._create_printf_call(op, rewriter, fmt_str_ptr, [val])
-
+            self._lower_integer(op, rewriter, module_op, arg)
         elif isinstance(arg_type, (builtin.Float32Type, builtin.Float64Type)):
-            # print float: printf("%f\n", val)
-            fmt_str_ptr = self._get_or_create_global_string(module_op, "%f\n", "fmt_f")
+            self._lower_float(op, rewriter, module_op, arg)
 
-            # float varargs must be promoted to double (f64)
-            val = arg
-            if not isinstance(arg_type, (builtin.Float64Type)):
-                cast = arith.ExtFOp(val, builtin.f64)
-                rewriter.insert_op(cast, InsertPoint.before(op))
-                val = cast.result
+    def _lower_string(self, op: printf.PrintFormatOp, rewriter: PatternRewriter, module_op: ModuleOp, val: Operation):
+        # printf(str)
+        fmt_str_global = self._ensure_global_string_constant(module_op, "%s\n", "fmt_s")
+        self._create_printf_call(op, rewriter, fmt_str_global, [val])
 
-            self._create_printf_call(op, rewriter, fmt_str_ptr, [val])
+    def _lower_integer(self, op: printf.PrintFormatOp, rewriter: PatternRewriter, module_op: ModuleOp, val: Operation):
+        # printf("%d\n", val)
+        fmt_str_global = self._ensure_global_string_constant(module_op, "%d\n", "fmt_d")
 
-    def _create_printf_call(self, op: Operation, rewriter: PatternRewriter, fmt_ptr, args):
-        # We need to construct the call.
-        # First argument is format string pointer.
+        # printf expects i32 for %d format
+        val = self._cast_integer_to_i32(val, rewriter, op)
+        self._create_printf_call(op, rewriter, fmt_str_global, [val])
 
-        # We need `llvm.mlir.addressof` for `fmt_ptr` global?
-        # _get_or_create_global_string returns the GlobalOp. We need address of it.
+    def _lower_float(self, op: printf.PrintFormatOp, rewriter: PatternRewriter, module_op: ModuleOp, val: Operation):
+        # printf("%f\n", val)
+        fmt_str_global = self._ensure_global_string_constant(module_op, "%f\n", "fmt_f")
 
-        # Wait, if we are in `lower_llvm`, maybe we should assume `llvm` dialect is available/primary target.
-        # But `LowerAzizPass` runs before us.
+        # float varargs in C execution must be promoted to double (f64)
+        if not isinstance(val.type, builtin.Float64Type):
+            cast = arith.ExtFOp(val, builtin.f64)
+            rewriter.insert_op(cast, InsertPoint.before(op))
+            val = cast.result
 
-        # Get address of format string
-        # We need to insert `llvm.mlir.addressof` here.
-        fline = llvm.AddressOfOp(fmt_ptr.sym_name, llvm.LLVMPointerType())
-        rewriter.insert_op(fline, InsertPoint.before(op))
+        self._create_printf_call(op, rewriter, fmt_str_global, [val])
 
-        callee = SymbolRefAttr("printf")
-        call_ops = [fline.results[0]] + args
+    def _cast_integer_to_i32(self, val: Operation, rewriter: PatternRewriter, insertion_point_op: Operation):
+        target_width = 32
+        val_type = val.type
 
-        # result of printf is i32, we discard it
-        # var_callee_type required for variadic calls
+        # if it's index type, we need index_cast
+        if isinstance(val_type, builtin.IndexType):
+            cast = arith.index_cast(val, builtin.i32)
+            rewriter.insert_op(cast, InsertPoint.before(insertion_point_op))
+            return cast.result
+
+        # if it's integer type
+        current_width = val_type.width.data
+        if current_width == target_width:
+            return val
+
+        if current_width > target_width:
+            cast = arith.TruncIOp(val, builtin.i32)
+        else:
+            cast = arith.ExtSIOp(val, builtin.i32)
+
+        rewriter.insert_op(cast, InsertPoint.before(insertion_point_op))
+        return cast.result
+
+    def _create_printf_call(self, op: Operation, rewriter: PatternRewriter, fmt_global: llvm.GlobalOp, args: list[Operation]):
+        # get address of format string globally
+        fmt_dev_ptr = llvm.AddressOfOp(fmt_global.sym_name, llvm.LLVMPointerType())
+        rewriter.insert_op(fmt_dev_ptr, InsertPoint.before(op))
+
+        # prepare call arguments (format string + values)
+        call_args = [fmt_dev_ptr.results[0]] + args
+
+        # create CallOp
+        # printf signature: (i8*, ...) -> i32
+        callee_name = SymbolRefAttr("printf")
         printf_type = llvm.LLVMFunctionType([llvm.LLVMPointerType()], builtin.i32, is_variadic=True)
-        call = llvm.CallOp(callee, *call_ops, return_type=builtin.i32)
+
+        call = llvm.CallOp(callee_name, *call_args, return_type=builtin.i32)
         call.attributes["var_callee_type"] = printf_type
+
         rewriter.insert_op(call, InsertPoint.before(op))
         rewriter.erase_op(op)
 
-    def _get_or_create_global_string(self, module: ModuleOp, content: str, name_hint: str) -> llvm.GlobalOp:
-        # Check if already exists
-        # We'll suffix name with sanitized content hash or something?
-        # For simple cases like "%d\n", let's use fixed names.
-
+    def _ensure_global_string_constant(self, module: ModuleOp, content: str, name_hint: str) -> llvm.GlobalOp:
         sym_name = f"__str_{name_hint}"
+        module_block = module.body.blocks[0]
 
-        # check existence
-        for op in module.body.blocks[0].ops:
+        for op in module_block.ops:
             if isinstance(op, llvm.GlobalOp) and op.sym_name.data == sym_name:
                 return op
 
-        # create if not
+        # doesn't exist, create new global string constant
         data_bytes = content.encode("utf-8") + b"\0"
-
         arr_type = llvm.LLVMArrayType.from_size_and_type(len(data_bytes), builtin.i8)
-
         val_attr = builtin.ArrayAttr([builtin.IntegerAttr(b, builtin.i8) for b in data_bytes])
+        global_op = llvm.GlobalOp(arr_type, StringAttr(sym_name), linkage=llvm.LinkageAttr("internal"), constant=True, value=val_attr)
 
-        glob = llvm.GlobalOp(arr_type, StringAttr(sym_name), linkage=llvm.LinkageAttr("internal"), constant=True, value=val_attr)
-
-        if module.body.blocks[0].ops:
-            module.body.blocks[0].insert_op_before(glob, module.body.blocks[0].first_op)
+        # insert at top of module
+        if module_block.ops:
+            module_block.insert_op_before(global_op, module_block.first_op)
         else:
-            module.body.blocks[0].add_op(glob)
+            module_block.add_op(global_op)
 
-        return glob
+        return global_op
 
 
 class LowerPrintfToLLVMCallPass(ModulePass):
@@ -112,12 +124,21 @@ class LowerPrintfToLLVMCallPass(ModulePass):
         PatternRewriteWalker(PrintFormatOpLowering()).rewrite_module(op)
 
     def _ensure_printf_decl(self, module: ModuleOp):
-        # declares printf signature if not already present, so we can call it
-        if "printf" in [getattr(o, "sym_name", None) and o.sym_name.data for o in module.body.blocks[0].ops]:
-            return
+        # we need to declare `printf` so we can call it.
+        # declare external i32 @printf(i8*, ...)
 
-        i32 = builtin.i32
-        ptr = llvm.LLVMPointerType()
+        module_block = module.body.blocks[0]
 
-        f = llvm.FuncOp("printf", llvm.LLVMFunctionType([ptr], i32, is_variadic=True), linkage=llvm.LinkageAttr("external"))
-        module.body.blocks[0].add_op(f)
+        # check if already exists
+        for op in module_block.ops:
+            if hasattr(op, "sym_name") and op.sym_name.data == "printf":
+                return
+
+        ptr_type = llvm.LLVMPointerType()
+        i32_type = builtin.i32
+
+        printf_sig = llvm.LLVMFunctionType([ptr_type], i32_type, is_variadic=True)
+
+        printf_decl = llvm.FuncOp("printf", printf_sig, linkage=llvm.LinkageAttr("external"))
+
+        module_block.add_op(printf_decl)

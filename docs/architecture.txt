@@ -1,0 +1,38 @@
+              Source Code (.aziz)
+                      │
+                      ├─── lexer
+                      ▼
+                  Token Stream
+                      │
+                      ├─── parser
+                      ▼
+          Abstract Syntax Tree (AST)
+                      │
+                      ├─── IR generation
+                      ▼
+            aziz Dialect (Custom MLIR)
+                      │
+                      ├─── optimization
+                      ▼
+                Optimized MLIR
+                      │
+                      │
+      ┌───────────────┼───────────────┐
+      │               │               │
+      ▼               ▼               ▼
+  Interpret     LLVM Backend     RISC-V Backend
+                      │               │
+                      ├─── lower      ├─── lower
+                      ▼               ▼
+                LLVM Dialect    RISC-V Dialect
+                      │               │
+                      ├─── emit       ├─── codegen
+                      ▼               ▼
+                  LLVM IR        RISC-V Assembly
+                      │               │
+                      ├─── compile    │
+                      ▼               │
+                Native Binary         │
+                      │               │
+                      ▼               ▼
+                   Execute         Emulate
