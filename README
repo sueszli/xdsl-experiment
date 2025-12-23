@@ -13,205 +13,204 @@
 
 $ uv run aziz-lang/main.py examples/rec-simple.aziz --source --ast --mlir --asm
 
-    ----------------------------------------------------------------------
-    source
-    ----------------------------------------------------------------------
+----------------------------------------------------------------------
+source
+----------------------------------------------------------------------
 
-    (defun factorial (n)
+(defun factorial (n)
     (if (<= n 1)
         1
         (* n (factorial (- n 1)))))
 
-    (factorial 5)
+(factorial 5)
 
+----------------------------------------------------------------------
+ast
+----------------------------------------------------------------------
 
-    ----------------------------------------------------------------------
-    ast
-    ----------------------------------------------------------------------
-
-    ModuleAST(
-    ops=[
-        FunctionAST(
-        proto=PrototypeAST(
-            name='factorial',
-            args=[
-            'n'
-            ]
+ModuleAST(
+ops=[
+    FunctionAST(
+    proto=PrototypeAST(
+        name='factorial',
+        args=[
+        'n'
+        ]
+    ),
+    body=[
+        IfExprAST(
+        cond=BinaryExprAST(
+            op='<=',
+            lhs=VariableExprAST(
+            name='n'
+            ),
+            rhs=NumberExprAST(
+            val=1
+            )
         ),
-        body=[
-            IfExprAST(
-            cond=BinaryExprAST(
-                op='<=',
+        then_expr=NumberExprAST(
+            val=1
+        ),
+        else_expr=BinaryExprAST(
+            op='*',
+            lhs=VariableExprAST(
+            name='n'
+            ),
+            rhs=CallExprAST(
+            callee='factorial',
+            args=[
+                BinaryExprAST(
+                op='-',
                 lhs=VariableExprAST(
-                name='n'
+                    name='n'
                 ),
                 rhs=NumberExprAST(
-                val=1
+                    val=1
                 )
-            ),
-            then_expr=NumberExprAST(
-                val=1
-            ),
-            else_expr=BinaryExprAST(
-                op='*',
-                lhs=VariableExprAST(
-                name='n'
-                ),
-                rhs=CallExprAST(
-                callee='factorial',
-                args=[
-                    BinaryExprAST(
-                    op='-',
-                    lhs=VariableExprAST(
-                        name='n'
-                    ),
-                    rhs=NumberExprAST(
-                        val=1
-                    )
-                    )
-                ]
                 )
+            ]
             )
-            )
-        ]
-        ),
-        CallExprAST(
-        callee='factorial',
-        args=[
-            NumberExprAST(
-            val=5
-            )
-        ]
+        )
+        )
+    ]
+    ),
+    CallExprAST(
+    callee='factorial',
+    args=[
+        NumberExprAST(
+        val=5
         )
     ]
     )
+]
+)
 
-    ----------------------------------------------------------------------
-    before optimization
-    ----------------------------------------------------------------------
+----------------------------------------------------------------------
+mlir before optimization
+----------------------------------------------------------------------
 
-    ModuleOp(
-            builtin.module {
-            "aziz.func"() ({
-            ^bb0(%0 : i32):
-                %1 = "aziz.constant"() {value = 1 : i32} : () -> i32
-                %2 = "aziz.le"(%0, %1) : (i32, i32) -> i32
-                %3 = "aziz.if"(%2) ({
-                %4 = "aziz.constant"() {value = 1 : i32} : () -> i32
-                "aziz.yield"(%4) : (i32) -> ()
-                }, {
-                %5 = "aziz.constant"() {value = 1 : i32} : () -> i32
-                %6 = "aziz.sub"(%0, %5) : (i32, i32) -> i32
-                %7 = "aziz.call"(%6) {callee = @factorial} : (i32) -> i32
-                %8 = "aziz.mul"(%0, %7) : (i32, i32) -> i32
-                "aziz.yield"(%8) : (i32) -> ()
-                }) : (i32) -> i32
-                "aziz.return"(%3) : (i32) -> ()
-            }) {sym_name = "factorial", function_type = (i32) -> i32, sym_visibility = "private"} : () -> ()
-            "aziz.func"() ({
-                %9 = "aziz.constant"() {value = 5 : i32} : () -> i32
-                %10 = "aziz.call"(%9) {callee = @factorial} : (i32) -> i32
-                "aziz.return"(%10) : (i32) -> ()
-            }) {sym_name = "main", function_type = () -> i32} : () -> ()
+ModuleOp(
+        builtin.module {
+        "aziz.func"() ({
+        ^bb0(%0 : i32):
+            %1 = "aziz.constant"() {value = 1 : i32} : () -> i32
+            %2 = "aziz.le"(%0, %1) : (i32, i32) -> i32
+            %3 = "aziz.if"(%2) ({
+            %4 = "aziz.constant"() {value = 1 : i32} : () -> i32
+            "aziz.yield"(%4) : (i32) -> ()
+            }, {
+            %5 = "aziz.constant"() {value = 1 : i32} : () -> i32
+            %6 = "aziz.sub"(%0, %5) : (i32, i32) -> i32
+            %7 = "aziz.call"(%6) {callee = @factorial} : (i32) -> i32
+            %8 = "aziz.mul"(%0, %7) : (i32, i32) -> i32
+            "aziz.yield"(%8) : (i32) -> ()
+            }) : (i32) -> i32
+            "aziz.return"(%3) : (i32) -> ()
+        }) {sym_name = "factorial", function_type = (i32) -> i32, sym_visibility = "private"} : () -> ()
+        "aziz.func"() ({
+            %9 = "aziz.constant"() {value = 5 : i32} : () -> i32
+            %10 = "aziz.call"(%9) {callee = @factorial} : (i32) -> i32
+            "aziz.return"(%10) : (i32) -> ()
+        }) {sym_name = "main", function_type = () -> i32} : () -> ()
+        }
+)
+
+----------------------------------------------------------------------
+mlir after optimization
+----------------------------------------------------------------------
+
+ModuleOp(
+        builtin.module {
+        func.func private @factorial(%0 : i32) -> i32 {
+            %1 = arith.constant 1 : i32
+            %2 = arith.cmpi sle, %1, %0 : i32
+            %3 = scf.if %2 -> (i32) {
+            %4 = arith.constant 1 : i32
+            scf.yield %4 : i32
+            } else {
+            %5 = arith.constant 1 : i32
+            %6 = arith.subi %0, %5 : i32
+            %7 = func.call @factorial(%6) : (i32) -> i32
+            %8 = arith.muli %0, %7 : i32
+            scf.yield %8 : i32
             }
-    )
+            func.return %3 : i32
+        }
+        func.func @main() -> i32 {
+            %0 = arith.constant 5 : i32
+            %1 = func.call @factorial(%0) : (i32) -> i32
+            func.return %1 : i32
+        }
+        }
+)
 
-    ----------------------------------------------------------------------
-    after optimization
-    ----------------------------------------------------------------------
+----------------------------------------------------------------------
+riscv assembly
+----------------------------------------------------------------------
 
-    ModuleOp(
-            builtin.module {
-            func.func private @factorial(%0 : i32) -> i32 {
-                %1 = arith.constant 1 : i32
-                %2 = arith.cmpi sle, %1, %0 : i32
-                %3 = scf.if %2 -> (i32) {
-                %4 = arith.constant 1 : i32
-                scf.yield %4 : i32
-                } else {
-                %5 = arith.constant 1 : i32
-                %6 = arith.subi %0, %5 : i32
-                %7 = func.call @factorial(%6) : (i32) -> i32
-                %8 = arith.muli %0, %7 : i32
-                scf.yield %8 : i32
-                }
-                func.return %3 : i32
-            }
-            func.func @main() -> i32 {
-                %0 = arith.constant 5 : i32
-                %1 = func.call @factorial(%0) : (i32) -> i32
-                func.return %1 : i32
-            }
-            }
-    )
-
-    ----------------------------------------------------------------------
-    riscv assembly
-    ----------------------------------------------------------------------
-
-    .text
-    .text
-    .local factorial
-    .p2align 2
-    factorial:
-            addi sp, sp, -104
-            sd ra, 0(sp)
-            sd s0, 8(sp)
-            sd s1, 16(sp)
-            sd s2, 24(sp)
-            sd s3, 32(sp)
-            sd s4, 40(sp)
-            sd s5, 48(sp)
-            sd s6, 56(sp)
-            sd s7, 64(sp)
-            sd s8, 72(sp)
-            sd s9, 80(sp)
-            sd s10, 88(sp)
-            sd s11, 96(sp)
-            mv s0, a0
-            li s1, 1
-            slt s1, s1, s0
-            xori s1, s1, 1
-            addi sp, sp, -8
-            beq s1, zero, else_1
-            li s1, 1
-            sw s1, 0(sp)
-            j cont_1
-    else_1:
-            li s1, 1
-            sub s1, s0, s1
-            mv a0, s1
-            jal factorial
-            mv s1, a0
-            mul s0, s0, s1
-            sw s0, 0(sp)
-    cont_1:
-            lw s0, 0(sp)
-            addi sp, sp, 8
-            mv a0, s0
-            ld s0, 8(sp)
-            ld s1, 16(sp)
-            ld s2, 24(sp)
-            ld s3, 32(sp)
-            ld s4, 40(sp)
-            ld s5, 48(sp)
-            ld s6, 56(sp)
-            ld s7, 64(sp)
-            ld s8, 72(sp)
-            ld s9, 80(sp)
-            ld s10, 88(sp)
-            ld s11, 96(sp)
-            ld ra, 0(sp)
-            addi sp, sp, 104
-            ret
-    .globl main
-    .p2align 2
-    main:
-            li s0, 5
-            mv a0, s0
-            jal factorial
-            mv s0, a0
-            mv a0, s0
-            li a7, 93
-            ecall
-            ret
+.text
+.text
+.local factorial
+.p2align 2
+factorial:
+        addi sp, sp, -104
+        sd ra, 0(sp)
+        sd s0, 8(sp)
+        sd s1, 16(sp)
+        sd s2, 24(sp)
+        sd s3, 32(sp)
+        sd s4, 40(sp)
+        sd s5, 48(sp)
+        sd s6, 56(sp)
+        sd s7, 64(sp)
+        sd s8, 72(sp)
+        sd s9, 80(sp)
+        sd s10, 88(sp)
+        sd s11, 96(sp)
+        mv s0, a0
+        li s1, 1
+        slt s1, s1, s0
+        xori s1, s1, 1
+        addi sp, sp, -8
+        beq s1, zero, else_1
+        li s1, 1
+        sw s1, 0(sp)
+        j cont_1
+else_1:
+        li s1, 1
+        sub s1, s0, s1
+        mv a0, s1
+        jal factorial
+        mv s1, a0
+        mul s0, s0, s1
+        sw s0, 0(sp)
+cont_1:
+        lw s0, 0(sp)
+        addi sp, sp, 8
+        mv a0, s0
+        ld s0, 8(sp)
+        ld s1, 16(sp)
+        ld s2, 24(sp)
+        ld s3, 32(sp)
+        ld s4, 40(sp)
+        ld s5, 48(sp)
+        ld s6, 56(sp)
+        ld s7, 64(sp)
+        ld s8, 72(sp)
+        ld s9, 80(sp)
+        ld s10, 88(sp)
+        ld s11, 96(sp)
+        ld ra, 0(sp)
+        addi sp, sp, 104
+        ret
+.globl main
+.p2align 2
+main:
+        li s0, 5
+        mv a0, s0
+        jal factorial
+        mv s0, a0
+        mv a0, s0
+        li a7, 93
+        ecall
+        ret

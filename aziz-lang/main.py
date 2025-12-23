@@ -138,8 +138,8 @@ def main():
     if args.ast:
         print_block("ast", dump(module_ast))
     if args.mlir:
-        print_block("before optimization", orig1)
-        print_block("after optimization", orig2)
+        print_block("mlir before optimization", orig1)
+        print_block("mlir after optimization", orig2)
     if args.interpret:
         print_block("interpreter output", interpreter_result)
     if args.asm:
