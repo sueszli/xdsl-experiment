@@ -572,47 +572,60 @@ class MapToPhysicalRegistersPass(ModulePass):
             target_op = op
             if hasattr(op, "result_types"):
                 new_result_types = [get_physical(t) for t in op.result_types]
-                if new_result_types != list(op.result_types):
-                    # create new operation with physical register types
-                    new_op = op.__class__.create(operands=op.operands, result_types=new_result_types, attributes=op.attributes, successors=op.successors)
-                    # move regions from old to new operation
-                    for idx, region in enumerate(op.regions):
-                        region.move_blocks(new_op.regions[idx])
-                    # replace old operation with new one in the IR
-                    if op.parent_block():
-                        op.parent_block().insert_op_before(new_op, op)
-                        for idx, result in enumerate(op.results):
-                            result.replace_by(new_op.results[idx])
-                        op.detach()
+                if new_result_types == list(op.result_types):
+                    continue
+
+                # create new operation with physical register types
+                new_op = op.__class__.create(operands=op.operands, result_types=new_result_types, attributes=op.attributes, successors=op.successors)
+                # move regions from old to new operation
+                for idx, region in enumerate(op.regions):
+                    region.move_blocks(new_op.regions[idx])
+
+                # replace old operation with new one in the IR
+                if not op.parent_block():
                     target_op = new_op
+                    continue
+
+                op.parent_block().insert_op_before(new_op, op)
+                for idx, result in enumerate(op.results):
+                    result.replace_by(new_op.results[idx])
+                op.detach()
+                target_op = new_op
 
             # remap region block argument types
-            for region in target_op.regions:
-                for block in list(region.blocks):
-                    new_arg_types = [get_physical(arg.type) for arg in block.args]
-                    if any(new_type != arg.type for new_type, arg in zip(new_arg_types, block.args)):
-                        # create new block with physical register types
-                        new_block = Block(arg_types=new_arg_types)
-                        # replace all uses of old arguments with new arguments
-                        for old_arg, new_arg in zip(block.args, new_block.args):
-                            old_arg.replace_by(new_arg)
-                        # move all operations from old block to new block
-                        while block.ops:
-                            first_op = block.first_op
-                            first_op.detach()
-                            new_block.add_op(first_op)
+            all_blocks = [(region, block) for region in target_op.regions for block in list(region.blocks)]
+            for region, block in all_blocks:
+                new_arg_types = [get_physical(arg.type) for arg in block.args]
 
-                        # replace old block with new block in the region
-                        block_idx = next(i for i, blk in enumerate(region.blocks) if blk is block)
-                        region.detach_block(block)
-                        region.insert_block(new_block, block_idx)
+                # skip if no type changes needed
+                if not any(new_type != arg.type for new_type, arg in zip(new_arg_types, block.args)):
+                    continue
+
+                # create new block with physical register types
+                new_block = Block(arg_types=new_arg_types)
+                # replace all uses of old arguments with new arguments
+                for old_arg, new_arg in zip(block.args, new_block.args):
+                    old_arg.replace_by(new_arg)
+                # move all operations from old block to new block
+                while block.ops:
+                    first_op = block.first_op
+                    first_op.detach()
+                    new_block.add_op(first_op)
+
+                # replace old block with new block in the region
+                block_idx = next(i for i, blk in enumerate(region.blocks) if blk is block)
+                region.detach_block(block)
+                region.insert_block(new_block, block_idx)
 
             # update function signature to use physical register types
-            if isinstance(target_op, (riscv_func.FuncOp, func.FuncOp)):
-                if target_op.body.blocks:
-                    input_types = [arg.type for arg in target_op.body.blocks[0].args]
-                    output_types = [get_physical(t) for t in target_op.function_type.outputs]
-                    target_op.function_type = func.FunctionType.from_lists(input_types, output_types)
+            if not isinstance(target_op, (riscv_func.FuncOp, func.FuncOp)):
+                continue
+            if not target_op.body.blocks:
+                continue
+
+            input_types = [arg.type for arg in target_op.body.blocks[0].args]
+            output_types = [get_physical(t) for t in target_op.function_type.outputs]
+            target_op.function_type = func.FunctionType.from_lists(input_types, output_types)
 
     @staticmethod
     def get_reg_name(reg_type) -> str | None:
