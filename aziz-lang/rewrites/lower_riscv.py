@@ -437,65 +437,83 @@ class AddRecursionSupportPass(ModulePass):
 
 
 #
-# scf.YieldOp lowering
+# scf.IfOp lowering
 #
 
 
 class CustomScfIfToRiscvLowering(RewritePattern):
-    def __init__(self):
-        self.label_cnt = 0
+    label_cnt = 0
 
     @op_type_rewrite_pattern
     def match_and_rewrite(self, op: scf.IfOp, rewriter: PatternRewriter):
+        # unique labels for else-branch and continuation-point
         self.label_cnt += 1
-        lbl_else, lbl_cont = f"else_{self.label_cnt}", f"cont_{self.label_cnt}"
+        lbl_else = f"else_{self.label_cnt}"
+        lbl_cont = f"cont_{self.label_cnt}"
         rtype = riscv.IntRegisterType.unallocated()
 
+        # pass condition to register
         reg_cond = UnrealizedConversionCastOp.create(operands=[op.cond], result_types=[rtype])
         rewriter.insert_op(reg_cond, InsertPoint.before(op))
         zero = riscv.GetRegisterOp(riscv.Registers.ZERO)
         rewriter.insert_op(zero, InsertPoint.before(op))
 
-        # Stack slots for results
+        # scf.IfOp is expressed as a function with scf.YieldOps for results / return values.
+        # for each result, allocate 8 bytes on stack to store it.
         res_ptrs = []
         for _ in op.results:
             rewriter.insert_op(RISCVDirectiveOp("addi", "sp, sp, -8"), InsertPoint.before(op))
             res_ptrs.append(riscv.GetRegisterOp(riscv.Registers.SP))
             rewriter.insert_op(res_ptrs[-1], InsertPoint.before(op))
 
-        # Branch
+        # reg_cond != zero -> jump to else label
+        # reg_cond == zero -> fall through to true branch
         rewriter.insert_op(riscv.BeqOp(reg_cond.results[0], zero.res, offset=riscv.LabelAttr(lbl_else)), InsertPoint.before(op))
 
         def emit_region(region, dest_lbl=None):
+            """
+            Emit operations from a region (true or false branch).
+            - Replaces scf.YieldOp with stack stores (sw) to save results
+            - Moves all other operations inline
+            - Optionally jumps to dest_lbl at end
+            """
             if not region.block:
                 return
             for o in list(region.block.ops):
                 if isinstance(o, scf.YieldOp):
+                    # YieldOp returns values from the branch - store them to stack
                     for i, val in enumerate(o.operands):
                         vc = UnrealizedConversionCastOp.create(operands=[val], result_types=[rtype])
                         rewriter.insert_op(vc, InsertPoint.before(op))
-                        rewriter.insert_op(riscv.SwOp(res_ptrs[i].res, vc.results[0], 0), InsertPoint.before(op))
+                        rewriter.insert_op(riscv.SwOp(res_ptrs[i].res, vc.results[0], 0), InsertPoint.before(op))  # sw: store word
                 else:
+                    # regular operation - move it inline
                     o.detach()
                     rewriter.insert_op(o, InsertPoint.before(op))
             if dest_lbl:
+                # jump to continuation label (skips the else branch)
                 rewriter.insert_op(RISCVDirectiveOp("j", dest_lbl), InsertPoint.before(op))
 
+        # emit true branch and jump to continuation
         emit_region(op.true_region, lbl_cont)
+        # emit else label (target for failed condition)
         rewriter.insert_op(RISCVLabelOp(lbl_else), InsertPoint.before(op))
+        # emit false branch (no jump needed, falls through to continuation)
         emit_region(op.false_region)
+        # emit continuation label where both branches meet
         rewriter.insert_op(RISCVLabelOp(lbl_cont), InsertPoint.before(op))
 
-        # Load results
+        # load results from stack and convert back to original types
         finals = []
         for i, ptr in enumerate(res_ptrs):
-            load = riscv.LwOp(ptr.res, 0, rd=rtype)
+            load = riscv.LwOp(ptr.res, 0, rd=rtype)  # lw: load word from stack
             rewriter.insert_op(load, InsertPoint.before(op))
             fn = UnrealizedConversionCastOp.create(operands=[load.rd], result_types=[op.results[i].type])
             rewriter.insert_op(fn, InsertPoint.before(op))
             finals.append(fn.results[0])
-            rewriter.insert_op(RISCVDirectiveOp("addi", "sp, sp, 8"), InsertPoint.before(op))
+            rewriter.insert_op(RISCVDirectiveOp("addi", "sp, sp, 8"), InsertPoint.before(op))  # deallocate stack slot
 
+        # replace the original if-op with the loaded results
         rewriter.replace_op(op, [], finals)
 
 
@@ -545,9 +563,9 @@ class MapToPhysicalRegistersPass(ModulePass):
         p_flt = [f"fs{i}" for i in range(12)] + [f"ft{i}" for i in range(12)]
 
         if len(v_int) > len(p_int):
-            raise RuntimeError(f"Too many int regs: {len(v_int)}")
+            raise RuntimeError(f"too many int regs: {len(v_int)}")
         if len(v_flt) > len(p_flt):
-            raise RuntimeError(f"Too many float regs: {len(v_flt)}")
+            raise RuntimeError(f"too many float regs: {len(v_flt)}")
 
         imap = {v: p_int[i] for i, v in enumerate(sorted(v_int, key=lambda x: int(x.split("_")[1])))}
         fmap = {v: p_flt[i] for i, v in enumerate(sorted(v_flt, key=lambda x: int(x.split("_")[1])))}
