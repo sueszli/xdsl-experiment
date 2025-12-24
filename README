@@ -11,7 +11,7 @@
 ⢀⣾⣿⣿⣿⠁⠀⠀⠀⠀⠀⠈⠿⣿⣿⣿⡇
 
 
-Compilation Pipeline:
+compilation pipeline:
 
             Source Code (.aziz)
                     │
@@ -52,7 +52,7 @@ Interpret     LLVM Backend    RISC-V Backend
                     ▼               ▼
                  Execute         Emulate
 
-Based on:
+based on:
 
 - https://mlir.llvm.org/docs/Tutorials/Toy/
 - https://github.com/xdslproject/xdsl/tree/main/docs/Toy
