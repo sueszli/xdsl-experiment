@@ -52,4 +52,4 @@ interpret     LLVM backend    RISC-V backend
                     ▼               ▼
                  execute         emulate
 
-for more information, see: ./docs
+for more information, see: `./docs`
