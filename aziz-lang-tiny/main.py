@@ -104,24 +104,24 @@ class ModuleAST:
 # ==============================================================================================================
 
 GRAMMAR = r"""
-    start: top_level*
-    ?top_level: defun | expr
-    defun: "(" "defun" IDENTIFIER "(" args? ")" expr* ")"
-    args: IDENTIFIER+
-    ?expr: print_expr | if_expr | binary_expr | call_expr | atom
-    print_expr: "(" "print" expr ")"
-    if_expr: "(" "if" expr expr expr ")"
-    binary_expr: "(" BINARY_OP expr expr ")"
-    call_expr: "(" IDENTIFIER expr* ")"
-    atom: NUMBER -> number | STRING -> string | IDENTIFIER -> variable
-    BINARY_OP: "+" | "-" | "*" | "/" | "%" | "<=" | ">=" | "==" | "!=" | "<" | ">"
-    COMMENT: /;[^\n]*/
-    %import common.SIGNED_NUMBER -> NUMBER
-    %import common.ESCAPED_STRING -> STRING
-    %import common.WS
-    %ignore WS
-    %ignore COMMENT
-    IDENTIFIER.-1: /[a-zA-Z0-9_+\-*\/%<>=!?]+/
+start: top_level*
+?top_level: defun | expr
+defun: "(" "defun" IDENTIFIER "(" args? ")" expr* ")"
+args: IDENTIFIER+
+?expr: print_expr | if_expr | binary_expr | call_expr | atom
+print_expr: "(" "print" expr ")"
+if_expr: "(" "if" expr expr expr ")"
+binary_expr: "(" BINARY_OP expr expr ")"
+call_expr: "(" IDENTIFIER expr* ")"
+atom: NUMBER -> number | STRING -> string | IDENTIFIER -> variable
+BINARY_OP: "+" | "-" | "*" | "/" | "%" | "<=" | ">=" | "==" | "!=" | "<" | ">"
+COMMENT: /;[^\n]*/
+%import common.SIGNED_NUMBER -> NUMBER
+%import common.ESCAPED_STRING -> STRING
+%import common.WS
+%ignore WS
+%ignore COMMENT
+IDENTIFIER.-1: /[a-zA-Z0-9_+\-*\/%<>=!?]+/
 """
 
 
