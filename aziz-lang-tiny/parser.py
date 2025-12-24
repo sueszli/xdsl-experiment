@@ -1,8 +1,8 @@
 from pathlib import Path
 
-from aziz import BinaryExprAST, CallExprAST, ExprAST, FunctionAST, IfExprAST, ModuleAST, NumberExprAST, PrintExprAST, PrototypeAST, StringExprAST, VariableExprAST
-from lark import Lark, Token, Transformer, v_args
-from xdsl.utils.lexer import Location, Position, Span
+from aziz import BinaryExprAST, CallExprAST, FunctionAST, IfExprAST, ModuleAST, NumberExprAST, PrintExprAST, PrototypeAST, StringExprAST, VariableExprAST
+from lark import Lark, Transformer, v_args
+from xdsl.utils.lexer import Location, Span
 
 grammar = r"""
     start: top_level*
@@ -51,11 +51,7 @@ class AzizTransformer(Transformer):
         self.program = program
 
     def _get_location(self, meta) -> Location:
-        return Span(
-            meta.start_pos,
-            meta.end_pos,
-            self._input,
-        ).get_location()
+        return Span(meta.start_pos, meta.end_pos, self._input).get_location()
 
     @property
     def _input(self):
