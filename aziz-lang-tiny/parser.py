@@ -1,157 +1,140 @@
 from pathlib import Path
 
-from ast_nodes import BinaryExprAST, CallExprAST, ExprAST, FunctionAST, IfExprAST, ModuleAST, NumberExprAST, PrintExprAST, PrototypeAST, StringExprAST, VariableExprAST
-from lexer import AzizLexer, AzizToken, AzizTokenKind
-from xdsl.parser import GenericParser, ParserState
-from xdsl.utils.lexer import Input
+from aziz import BinaryExprAST, CallExprAST, ExprAST, FunctionAST, IfExprAST, ModuleAST, NumberExprAST, PrintExprAST, PrototypeAST, StringExprAST, VariableExprAST
+from lark import Lark, Token, Transformer, v_args
+from xdsl.utils.lexer import Location, Position, Span
+
+grammar = r"""
+    start: top_level*
+
+    ?top_level: defun | expr
+
+    defun: "(" "defun" IDENTIFIER "(" args? ")" expr* ")"
+    args: IDENTIFIER+
+
+    ?expr: print_expr
+         | if_expr
+         | binary_expr
+         | call_expr
+         | atom
+
+    print_expr: "(" "print" expr ")"
+    if_expr: "(" "if" expr expr expr ")"
+    
+    # explicitly list binary operators to prioritize them over generic call
+    binary_expr: "(" BINARY_OP expr expr ")"
+    
+    call_expr: "(" IDENTIFIER expr* ")"
+
+    atom: NUMBER -> number
+        | STRING -> string
+        | IDENTIFIER -> variable
+
+    BINARY_OP: "+" | "-" | "*" | "/" | "%" | "<=" | ">=" | "==" | "!=" | "<" | ">"
+    
+    COMMENT: /;[^\n]*/
+
+    # primitives
+    %import common.SIGNED_NUMBER -> NUMBER
+    %import common.ESCAPED_STRING -> STRING
+    %import common.WS
+    %ignore WS
+    %ignore COMMENT
+
+    IDENTIFIER: /[a-zA-Z0-9_+\-*\/%<>=!?]+/
+"""
 
 
-# parse with lark grammar instead? https://github.com/lark-parser/lark
-class AzizParser(GenericParser[AzizTokenKind]):
+class AzizTransformer(Transformer):
     def __init__(self, file: Path, program: str):
-        """
-        (0) calling `AzizParser` constructor
+        self.file = str(file)
+        self.program = program
 
-            AzizParser(Path("./hello.aziz"), "(defun hello_world (...)")
+    def _get_location(self, meta) -> Location:
+        return Span(
+            meta.start_pos,
+            meta.end_pos,
+            self._input,
+        ).get_location()
 
-        (1) first creates an input text wrapper
+    @property
+    def _input(self):
+        from xdsl.utils.lexer import Input
 
-            Input("(defun hello_world (...)", "./hello.aziz")
+        if not hasattr(self, "__input"):
+            self.__input = Input(self.program, self.file)
+        return self.__input
 
-        (2) then creates a lexer, inheriting from `Lexer`, that implements the `lex` method
+    def start(self, items):
+        return ModuleAST(tuple(items))
 
-            AzizLexer(Input(...))
+    def top_level(self, items):
+        return items[0]
 
-        (3) then creates a parser state. calls `lex()` to get the first token
+    @v_args(meta=True)
+    def args(self, meta, items):
+        return [str(item) for item in items]
 
-            ParserState(AzizLexer(...))
-            └─> self.lexer = AzizLexer(...)
-            └─> self.current_token = lexer.lex()
-            └─> self.dialect_stack = ["builtin"]
-
-        (4) finally calls GenericParser constructor
-
-            super().__init__(ParserState(...))
-            └─> self._parser_state = ParserState(...)
-
-        (5) then we can call `.parse_module()` to parse the module
-        """
-        super().__init__(ParserState(AzizLexer(Input(program, str(file)))))
-
-    def parse_module(self) -> ModuleAST:  # entry point
-        # module ::= ( top_level* )
-        ops = []
-        while self._current_token.kind != AzizTokenKind.EOF:
-            ops.append(self.parse_top_level())
-        return ModuleAST(tuple(ops))
-
-    def parse_top_level(self) -> FunctionAST | ExprAST:
-        # top_level ::= definition | expression
-        if self._current_token.kind == AzizTokenKind.PAREN_OPEN:  # don't `_pop()` yet
-            return self.parse_list()
-        return self.parse_atom()
-
-    def parse_list(self) -> FunctionAST | ExprAST:
-        # list ::= '(' ( definition | expression_list ) ')'
-        # definition ::= 'defun' identifier '(' identifier* ')' expression*
-        # expression_list ::= operator expression* | function_call
-        paren_loc = self._pop(AzizTokenKind.PAREN_OPEN).span.get_location()
-        if self._current_token.kind == AzizTokenKind.DEFUN:
-            return self.parse_defun(paren_loc)
-        return self.parse_expr_list_content(paren_loc)
-
-    def parse_defun(self, loc) -> FunctionAST:
-        # defun ::= '(' 'defun' name '(' args* ')' body* ')'
-        self._pop(AzizTokenKind.DEFUN)
-        name_token = self._pop(AzizTokenKind.IDENTIFIER)
-        name = name_token.text
-
-        self._pop(AzizTokenKind.PAREN_OPEN)
-
+    @v_args(meta=True)
+    def defun(self, meta, items):
+        name = str(items[0])
         args: list[str] = []
-        while self._current_token.kind == AzizTokenKind.IDENTIFIER:
-            args.append(self._pop(AzizTokenKind.IDENTIFIER).text)
-        self._pop(AzizTokenKind.PAREN_CLOSE)
+        body_start_index = 1
 
-        body: list[ExprAST] = []
-        while self._current_token.kind != AzizTokenKind.PAREN_CLOSE:
-            body.append(self.parse_expression())
+        # Check if second item is the args list (from args rule)
+        if len(items) > 1 and isinstance(items[1], list):
+            args = items[1]
+            body_start_index = 2
 
-        self._pop(AzizTokenKind.PAREN_CLOSE)
-
+        body = tuple(items[body_start_index:])
+        loc = self._get_location(meta)
         proto = PrototypeAST(loc, name, args)
-        return FunctionAST(loc, proto, tuple(body))
+        return FunctionAST(loc, proto, body)
 
-    def parse_expression(self) -> ExprAST:
-        # expression ::= list | atom
-        if self._current_token.kind == AzizTokenKind.PAREN_OPEN:
-            start_loc = self._pop(AzizTokenKind.PAREN_OPEN).span.get_location()
-            return self.parse_expr_list_content(start_loc)
-        return self.parse_atom()
+    @v_args(meta=True)
+    def print_expr(self, meta, items):
+        return PrintExprAST(self._get_location(meta), items[0])
 
-    def parse_expr_list_content(self, start_loc) -> ExprAST:
-        # expr_list_content ::= 'print' expression
-        #                     | 'if' expression expression expression
-        #                     | binary_op expression expression
-        #                     | function_name expression*
-        if self._current_token.kind == AzizTokenKind.PRINT:
-            self._pop(AzizTokenKind.PRINT)
-            arg = self.parse_expression()
-            self._pop(AzizTokenKind.PAREN_CLOSE)
-            return PrintExprAST(start_loc, arg)
+    @v_args(meta=True)
+    def if_expr(self, meta, items):
+        return IfExprAST(self._get_location(meta), items[0], items[1], items[2])
 
-        if self._current_token.kind == AzizTokenKind.IF:
-            self._pop(AzizTokenKind.IF)
-            cond = self.parse_expression()
-            then_expr = self.parse_expression()
-            else_expr = self.parse_expression()
-            self._pop(AzizTokenKind.PAREN_CLOSE)
-            return IfExprAST(start_loc, cond, then_expr, else_expr)
+    @v_args(meta=True)
+    def binary_expr(self, meta, items):
+        op = str(items[0])
+        return BinaryExprAST(self._get_location(meta), op, items[1], items[2])
 
-        if self._current_token.kind == AzizTokenKind.IDENTIFIER:
-            head = self._pop(AzizTokenKind.IDENTIFIER)
-            name = head.text
+    @v_args(meta=True)
+    def call_expr(self, meta, items):
+        name = str(items[0])
+        args = list(items[1:])
+        return CallExprAST(self._get_location(meta), name, args)
 
-            # binary operators
-            if name in ("+", "*", "-", "/", "%", "<", ">", "<=", ">=", "==", "!="):
-                lhs = self.parse_expression()
-                rhs = self.parse_expression()
-                self._pop(AzizTokenKind.PAREN_CLOSE)
-                return BinaryExprAST(start_loc, name, lhs, rhs)
+    @v_args(meta=True)
+    def number(self, meta, items):
+        val = items[0]
+        try:
+            val = int(val)
+        except ValueError:
+            val = float(val)
+        return NumberExprAST(self._get_location(meta), val)
 
-            # generic function call
-            args: list[ExprAST] = []
-            while self._current_token.kind != AzizTokenKind.PAREN_CLOSE:
-                args.append(self.parse_expression())
-            self._pop(AzizTokenKind.PAREN_CLOSE)
-            return CallExprAST(start_loc, name, args)
+    @v_args(meta=True)
+    def string(self, meta, items):
+        # strip quotes
+        return StringExprAST(self._get_location(meta), str(items[0])[1:-1])
 
-        # handle other cases or errors
-        if self._current_token.kind == AzizTokenKind.PAREN_CLOSE:
-            self.raise_error("empty lists (nil) not supported as expressions", self._current_token)
+    @v_args(meta=True)
+    def variable(self, meta, items):
+        return VariableExprAST(self._get_location(meta), str(items[0]))
 
-        self.raise_error(f"unexpected token in list: {self._current_token.kind}", self._current_token)
 
-    def parse_atom(self) -> ExprAST:
-        # atom ::= number | string | identifier
-        token = self._current_token
-        if token.kind == AzizTokenKind.NUMBER:
-            self._consume_token()
-            try:
-                val = int(token.text)
-            except ValueError:
-                val = float(token.text)
-            return NumberExprAST(token.span.get_location(), val)
+class AzizParser:
+    def __init__(self, file: Path, program: str):
+        self.file = file
+        self.program = program
+        self.parser = Lark(grammar, start="start", propagate_positions=True)
 
-        if token.kind == AzizTokenKind.STRING:
-            self._consume_token()
-            return StringExprAST(token.span.get_location(), token.text[1:-1])  # strip quotes
-
-        if token.kind == AzizTokenKind.IDENTIFIER:
-            self._consume_token()
-            return VariableExprAST(token.span.get_location(), token.text)
-
-        self.raise_error(f"unexpected token: {token.kind}", token)
-
-    def _pop(self, kind: AzizTokenKind) -> AzizToken:  # verify type
-        return self._parse_token(kind, f"expected {kind}")  # calls GenericParser._parse_token
+    def parse_module(self) -> ModuleAST:
+        tree = self.parser.parse(self.program)
+        return AzizTransformer(self.file, self.program).transform(tree)
