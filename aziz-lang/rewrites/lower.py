@@ -45,7 +45,19 @@ class LessThanEqualOpLowering(RewritePattern):
         if isinstance(op.lhs.type, AnyFloat):
             rewriter.replace_op(op, arith.CmpfOp(op.lhs, op.rhs, "ole"))  # ordered less equal
         else:
-            rewriter.replace_op(op, arith.CmpiOp(op.lhs, op.rhs, "sle"))  # signed less equal
+            # xDSL's sle lowering to RISC-V is buggy.
+            # we implement a <= b as !(b < a)
+            # e.g. (b < a) == 0
+
+            # lt = (rhs < lhs)
+            lt = arith.CmpiOp(op.rhs, op.lhs, "slt")
+            rewriter.insert_op(lt, InsertPoint.before(op))
+
+            # res = (lt == 0)
+            zero = arith.ConstantOp(IntegerAttr(0, IntegerType(1)))
+            rewriter.insert_op(zero, InsertPoint.before(op))
+
+            rewriter.replace_op(op, arith.CmpiOp(lt.result, zero.result, "eq"))
 
 
 class CastIntToFloatOpLowering(RewritePattern):
