@@ -21,11 +21,6 @@ from xdsl.dialects.builtin import Builtin
 from xdsl.transforms.canonicalize import CanonicalizePass
 from xdsl.transforms.lower_affine import LowerAffinePass
 
-# usage:
-#
-# $ uv run aziz-lang-tiny/main.py examples/rec.aziz --debug
-# $ uv run aziz-lang-tiny/main.py examples/rec.aziz | mlir-opt --convert-scf-to-cf --convert-func-to-llvm --convert-arith-to-llvm --convert-cf-to-llvm --reconcile-unrealized-casts | mlir-translate --mlir-to-llvmir | lli
-
 
 def main():
     parser = argparse.ArgumentParser(description="aziz language")
