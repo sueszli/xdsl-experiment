@@ -27,6 +27,7 @@ from xdsl.transforms.lower_affine import LowerAffinePass
 def main():
     parser = argparse.ArgumentParser(description="aziz language")
     parser.add_argument("file", help="source file")
+    parser.add_argument("--mlir", action="store_true", help="emit intermediate mlir representations")
     args = parser.parse_args()
     assert args.file.endswith(".aziz")
     src = Path(args.file).read_text()
@@ -37,15 +38,17 @@ def main():
     module_ast = AzizParser(None, src).parse_module()
     module_op = IRGen().ir_gen_module(module_ast)
 
-    print(f"{'-' * 30} MLIR before optimization")
-    print(module_op)
+    if args.mlir:
+        print(f"\n\n{'-' * 30} MLIR before optimization\n\n")
+        print(module_op)
 
     ctx = context()
     OptimizeAzizPass().apply(ctx, module_op)
     module_op.verify()
 
-    print(f"{'-' * 30} MLIR after optimization")
-    print(module_op)
+    if args.mlir:
+        print(f"\n\n{'-' * 30} MLIR after optimization\n\n")
+        print(module_op)
 
     LowerAzizPass().apply(ctx, module_op)
     LowerAffinePass().apply(ctx, module_op)
@@ -53,15 +56,16 @@ def main():
     LowerPrintfToLLVMCallPass().apply(ctx, module_op)
     module_op.verify()
 
-    print(f"{'-' * 30} MLIR lowered to LLVM dialect")
+    if args.mlir:
+        print(f"\n\n{'-' * 30} MLIR after lowering to LLVM dialect\n\n")
     print(module_op)
 
-    llvm_ir, llvm_exec_out, llvm_exec_err = execute_llvm(module_op)
-    print(llvm_ir)
+    # llvm_ir, llvm_exec_out, llvm_exec_err = execute_llvm(module_op)
+    # print(llvm_ir)
 
-    print(f"{'-' * 30} LLVM output")
-    print(llvm_exec_out)
-    print(llvm_exec_err)
+    # print(f"{'-' * 30} LLVM output")
+    # print(llvm_exec_out)
+    # print(llvm_exec_err)
 
 
 def context() -> Context:
