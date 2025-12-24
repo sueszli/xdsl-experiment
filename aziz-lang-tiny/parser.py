@@ -1,5 +1,3 @@
-# parse with lark grammar? https://github.com/lark-parser/lark
-
 from pathlib import Path
 
 from ast_nodes import BinaryExprAST, CallExprAST, ExprAST, FunctionAST, IfExprAST, ModuleAST, NumberExprAST, PrintExprAST, PrototypeAST, StringExprAST, VariableExprAST
@@ -7,7 +5,7 @@ from lexer import AzizLexer, AzizToken, AzizTokenKind
 from xdsl.parser import GenericParser, ParserState
 from xdsl.utils.lexer import Input
 
-
+# parse with lark grammar instead? https://github.com/lark-parser/lark
 class AzizParser(GenericParser[AzizTokenKind]):
     def __init__(self, file: Path, program: str):
         """
