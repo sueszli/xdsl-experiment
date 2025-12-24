@@ -13,8 +13,7 @@ from pathlib import Path
 
 import aziz
 from ir_gen import IRGen
-from lower import LowerAzizPass, LowerPrintfToLLVMCallPass
-from optimize import OptimizeAzizPass
+from rewrites import LowerAzizPass, LowerPrintfToLLVMCallPass, OptimizeAzizPass
 from xdsl.context import Context
 from xdsl.dialects import affine, arith, func, printf, scf
 from xdsl.dialects.builtin import Builtin
