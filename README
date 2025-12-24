@@ -11,47 +11,51 @@
 ⢀⣾⣿⣿⣿⠁⠀⠀⠀⠀⠀⠈⠿⣿⣿⣿⡇
 
 
-$ cat docs/architecture.txt
+Compilation Pipeline:
 
+            Source Code (.aziz)
+                    │
+                    ├─── lexer
+                    ▼
+                Token Stream
+                    │
+                    ├─── parser
+                    ▼
+        Abstract Syntax Tree (AST)
+                    │
+                    ├─── IR generation
+                    ▼
+          aziz Dialect (Custom MLIR)
+                    │
+                    ├─── optimization
+                    ▼
+              Optimized MLIR
+                    │
+                    │
+    ┌───────────────┼───────────────┐
+    │               │               │
+    ▼               ▼               ▼
+Interpret     LLVM Backend    RISC-V Backend
+                    │               │
+                    ├─── lower      ├─── lower
+                    ▼               ▼
+              LLVM Dialect    RISC-V Dialect
+                    │               │
+                    ├─── emit       ├─── codegen
+                    ▼               ▼
+                 LLVM IR      RISC-V Assembly
+                    │               │
+                    ├─── compile    │
+                    ▼               │
+              Native Binary         │
+                    │               │
+                    ▼               ▼
+                 Execute         Emulate
 
-              Source Code (.aziz)
-                      │
-                      ├─── lexer
-                      ▼
-                  Token Stream
-                      │
-                      ├─── parser
-                      ▼
-          Abstract Syntax Tree (AST)
-                      │
-                      ├─── IR generation
-                      ▼
-            aziz Dialect (Custom MLIR)
-                      │
-                      ├─── optimization
-                      ▼
-                Optimized MLIR
-                      │
-                      │
-      ┌───────────────┼───────────────┐
-      │               │               │
-      ▼               ▼               ▼
-  Interpret     LLVM Backend     RISC-V Backend
-                      │               │
-                      ├─── lower      ├─── lower
-                      ▼               ▼
-                LLVM Dialect    RISC-V Dialect
-                      │               │
-                      ├─── emit       ├─── codegen
-                      ▼               ▼
-                  LLVM IR        RISC-V Assembly
-                      │               │
-                      ├─── compile    │
-                      ▼               │
-                Native Binary         │
-                      │               │
-                      ▼               ▼
-                   Execute         Emulate
+Based on:
+
+- https://mlir.llvm.org/docs/Tutorials/Toy/
+- https://github.com/xdslproject/xdsl/tree/main/docs/Toy
 
 
 $ uv run aziz-lang/main.py examples/rec-simple.aziz --all
