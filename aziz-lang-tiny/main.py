@@ -24,7 +24,7 @@ from xdsl.pattern_rewriter import PatternRewriteWalker, RewritePattern, op_type_
 from xdsl.transforms.dead_code_elimination import dce
 
 #
-# parsing + irgen
+# parsing + ir gen
 #
 
 GRAMMAR = r"""
@@ -53,7 +53,7 @@ class IRGen:
     def __init__(self):
         self.module = ModuleOp([])
         self.builder = Builder(InsertPoint.at_end(self.module.body.blocks[0]))  # string builder
-        self.symbol_table = {}  # var name -> SSAValue in current scope (ScopedDict could be used for nested scopes)
+        self.symbol_table = {}  # arg name -> SSAValue in current scope
         self.str_cache = {}  # reference string consts on dup values
         self.str_cnt = 0  # string name gen
 
@@ -61,10 +61,56 @@ class IRGen:
         self.builder.insert(llvm.FuncOp("printf", llvm.LLVMFunctionType([llvm.LLVMPointerType()], builtin.i32, is_variadic=True), linkage=llvm.LinkageAttr("external")))
 
     def gen(self, tree: Lark) -> ModuleOp:
+        # generate functions
         funcs = [n for n in tree.children if n.data == "defun"]
-        main_exprs = [n for n in tree.children if n.data != "defun"]
+        inferred_arg_types = self._get_func_signatures()
+        for f in funcs:
+            func_name = str(f.children[0])
+            nodes = f.children[1:]
+            arg_nodes = next((n for n in nodes if n.data == "args"), None)
+            arg_names = [str(t) for t in arg_nodes.children] if arg_nodes else []
+            body_nodes = [n for n in nodes if n.data != "args"]
 
-        # sigs: function name -> list of type signatures from all call sites in the code
+            arg_types = inferred_arg_types.get(func_name, [i32] * len(arg_names))  # default to i32
+            ftype = FunctionType.from_lists(arg_types, [i32])  # assume 1x i32 return
+
+            # create mlir func_op
+            entry = Block(arg_types=arg_types)
+            func_op = func.FuncOp(func_name, ftype, Region(entry))
+            self.module.body.blocks[0].add_op(func_op)
+
+            # enter function scope
+            prev_builder = self.builder
+            self.builder = Builder(InsertPoint.at_end(entry))
+            self.symbol_table = {n: a for n, a in zip(arg_names, entry.args)}  # arg names -> ssa values
+
+            # create mlir return
+            last_val = self._gen_expr(body_nodes[-1]) if body_nodes else None
+            const_0 = self.builder.insert(arith.ConstantOp(IntegerAttr(0, i32))).results[0]
+            ret_val = last_val if last_val else const_0  # default return 0
+            self.builder.insert(func.ReturnOp(ret_val))
+            func_op.function_type = FunctionType.from_lists(arg_types, [ret_val.type])
+
+            # exit function scope
+            self.builder = prev_builder
+
+        # create mlir main
+        main_exprs = [n for n in tree.children if n.data != "defun"]
+        if main_exprs:
+            entry = Block()
+            func_op = func.FuncOp("main", FunctionType.from_lists([], [i32]), Region(entry))
+            self.module.body.blocks[0].add_op(func_op)
+            prev_builder, self.builder = self.builder, Builder(InsertPoint.at_end(entry))
+            self.symbol_table = {}
+            for expr in main_exprs:
+                self._gen_expr(expr)
+            self.builder.insert(func.ReturnOp(self.builder.insert(arith.ConstantOp(IntegerAttr(0, i32))).results[0]))
+            self.builder = prev_builder
+
+        return self.module
+
+    def _get_func_signatures(self):
+        # sigs: function name -> list of argument types from all call sites
         sigs = {}
         num_type = lambda n: f64 if "." in n.children[0] else i32
         type_of = lambda n: llvm.LLVMPointerType() if n.data == "string" else num_type(n) if n.data == "number" else None
@@ -91,59 +137,7 @@ class IRGen:
                     if t1 != t2:
                         final[i] = f64  # promote to float if mismatch
             resolved[name] = final
-
-        # Generate Functions
-        for f in funcs:
-            name, nodes = str(f.children[0]), f.children[1:]
-            args_node = next((n for n in nodes if n.data == "args"), None)
-            args = [str(t) for t in args_node.children] if args_node else []
-            body = [n for n in nodes if n.data != "args"]
-
-            arg_types = resolved.get(name, [i32] * len(args))
-            ftype = FunctionType.from_lists(arg_types, [i32])  # Default return i32, updated later
-
-            entry = Block(arg_types=arg_types)
-            func_op = func.FuncOp(name, ftype, Region(entry))
-            self.module.body.blocks[0].add_op(func_op)
-
-            prev_builder, self.builder = self.builder, Builder(InsertPoint.at_end(entry))
-            self.symbol_table = {n: a for n, a in zip(args, entry.args)}
-
-            last_val = None
-            for expr in body:
-                last_val = self._gen_expr(expr)
-
-            ret_val = last_val if last_val else self.builder.insert(arith.ConstantOp(IntegerAttr(0, i32))).results[0]
-            self.builder.insert(func.ReturnOp(ret_val))
-
-            # Update return type based on actual return
-            func_op.function_type = FunctionType.from_lists(arg_types, [ret_val.type])
-            self.builder = prev_builder
-
-        # Generate Main
-        if main_exprs:
-            entry = Block()
-            func_op = func.FuncOp("main", FunctionType.from_lists([], [i32]), Region(entry))
-            self.module.body.blocks[0].add_op(func_op)
-            prev_builder, self.builder = self.builder, Builder(InsertPoint.at_end(entry))
-            self.symbol_table = {}
-            for expr in main_exprs:
-                self._gen_expr(expr)
-            self.builder.insert(func.ReturnOp(self.builder.insert(arith.ConstantOp(IntegerAttr(0, i32))).results[0]))
-            self.builder = prev_builder
-
-        return self.module
-
-    def _get_str_global(self, val: str) -> builtin.SSAValue:
-        if val not in self.str_cache:
-            name = f".str.{self.str_cnt}"
-            self.str_cnt += 1
-            self.str_cache[val] = name
-            data = val.encode("utf-8") + b"\0"
-            g = llvm.GlobalOp(llvm.LLVMArrayType.from_size_and_type(len(data), i8), StringAttr(name), linkage=llvm.LinkageAttr("internal"), constant=True, value=ArrayAttr([IntegerAttr(b, i8) for b in data]))
-            self.module.body.blocks[0].insert_op_before(g, self.module.body.blocks[0].first_op)
-
-        return self.builder.insert(llvm.AddressOfOp(self.str_cache[val], llvm.LLVMPointerType())).results[0]
+        return resolved
 
     def _gen_expr(self, node):
         if node.data == "number":
@@ -181,7 +175,7 @@ class IRGen:
             name, args = str(node.children[0]), [self._gen_expr(c) for c in node.children[1:]]
             func_op = next((o for o in self.module.body.blocks[0].ops if isinstance(o, func.FuncOp) and o.sym_name.data == name), None)
 
-            # Cast arguments
+            # casst arguments
             final_args = []
             for arg, exp_type in zip(args, func_op.function_type.inputs.data):
                 if arg.type != exp_type:
@@ -194,14 +188,14 @@ class IRGen:
         if node.data == "if_expr":
             cond, then_n, else_n = self._gen_expr(node.children[0]), node.children[1], node.children[2]
 
-            # Ensure boolean condition
+            # ensure boolean condition
             if cond.type != builtin.i1:
                 z = self.builder.insert(arith.ConstantOp(IntegerAttr(0, cond.type))).results[0]
                 cond = self.builder.insert(arith.CmpiOp(cond, z, "ne")).results[0]
 
             orig_builder = self.builder
 
-            # Generate blocks first to determine result type
+            # generate blocks first to determine result type
             t_blk = Block()
             self.builder = Builder(InsertPoint.at_end(t_blk))
             then_val = self._gen_expr(node.children[1])
@@ -219,7 +213,7 @@ class IRGen:
             val = self._gen_expr(node.children[0])
             fmt = "%s\n" if isinstance(val.type, llvm.LLVMPointerType) else "%f\n" if isinstance(val.type, builtin.Float64Type) else "%d\n"
 
-            # Casts for printf
+            # casts for printf
             if fmt == "%f\n" and val.type != f64:
                 val = self.builder.insert(arith.ExtFOp(val, f64)).results[0]
             if fmt == "%d\n":
@@ -227,13 +221,24 @@ class IRGen:
                     val = self.builder.insert(arith.ExtSIOp(val, i32)).results[0]
                 elif val.type.width.data > 32:
                     val = self.builder.insert(arith.TruncIOp(val, i32)).results[0]
-            # (Note: ExtSIOp/TruncIOp conditional logic simplified for brevity, assuming mostly i32)
+            # (note: ExtSIOp/TruncIOp conditional logic simplified for brevity, assuming mostly i32)
 
             fmt_ptr = self._get_str_global(fmt)
             call = llvm.CallOp(SymbolAttr("printf"), fmt_ptr, val, return_type=i32)
             call.attributes["var_callee_type"] = llvm.LLVMFunctionType([llvm.LLVMPointerType()], builtin.i32, is_variadic=True)
             self.builder.insert(call)
             return None
+
+    def _get_str_global(self, val: str) -> builtin.SSAValue:
+        if val not in self.str_cache:
+            name = f".str.{self.str_cnt}"
+            self.str_cnt += 1
+            self.str_cache[val] = name
+            data = val.encode("utf-8") + b"\0"
+            g = llvm.GlobalOp(llvm.LLVMArrayType.from_size_and_type(len(data), i8), StringAttr(name), linkage=llvm.LinkageAttr("internal"), constant=True, value=ArrayAttr([IntegerAttr(b, i8) for b in data]))
+            self.module.body.blocks[0].insert_op_before(g, self.module.body.blocks[0].first_op)
+
+        return self.builder.insert(llvm.AddressOfOp(self.str_cache[val], llvm.LLVMPointerType())).results[0]
 
 
 #
