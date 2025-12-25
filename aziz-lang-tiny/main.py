@@ -275,28 +275,24 @@ class InlineFunctions(RewritePattern):
         if not is_single_line:
             return
 
-        # clone the callee function body. replace args with call operands
+        # replace func args with SSAValues from caller
         cloned_block = callee.clone().body.blocks[0]
         for operand, arg in zip(op.operands, cloned_block.args):
             arg.replace_by(operand)
 
-        # insert all operations except the return, then replace call with return operands
+        # inline all ops
         operations = list(cloned_block.ops)
         return_op = operations[-1]
         for operation in operations[:-1]:
             operation.detach()
             rewriter.insert_op(operation, InsertPoint.before(op))
-
         rewriter.replace_op(op, [], return_op.operands)
 
     @lru_cache(None)
-    def _callee(self, op):
-        # find the module containing this operation
+    def _callee(self, op: func.CallOp) -> func.FuncOp | None:
         module = op
         while not isinstance(module, ModuleOp):
             module = module.parent_op()
-
-        # find the function with matching name
         callee_name = op.callee.string_value()
         return next((func_op for func_op in module.body.blocks[0].ops if isinstance(func_op, func.FuncOp) and func_op.sym_name.data == callee_name), None)
 
@@ -306,11 +302,12 @@ class RemoveUnusedPrivateFunctions(RewritePattern):
 
     @op_type_rewrite_pattern
     def match_and_rewrite(self, op: func.FuncOp, rewriter: PatternRewriteWalker):
-        # keep main function and non-private functions
-        if op.sym_name.data == "main" or op.sym_visibility != StringAttr("private"):
+        is_main = op.sym_name.data == "main"
+        is_public = op.sym_visibility != StringAttr("private")
+        if is_main or is_public:
             return
 
-        # build set of used function names on first call
+        # update set of functions that ever get called
         if self._used is None:
             self._used = {call.callee.string_value() for call in op.parent_op().walk() if isinstance(call, func.CallOp)}
 
