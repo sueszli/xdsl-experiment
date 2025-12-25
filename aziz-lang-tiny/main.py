@@ -11,7 +11,7 @@
 import argparse
 from pathlib import Path
 
-from lark import Lark
+from lark import Lark, Tree
 from xdsl.builder import Builder, InsertPoint
 from xdsl.context import Context
 from xdsl.dialects import arith, builtin, func, llvm, scf
@@ -23,9 +23,9 @@ from xdsl.passes import ModulePass
 from xdsl.pattern_rewriter import PatternRewriteWalker, RewritePattern, op_type_rewrite_pattern
 from xdsl.transforms.dead_code_elimination import dce
 
-# ==============================================================================================================
+#
 # parsing + irgen
-# ==============================================================================================================
+#
 
 GRAMMAR = r"""
 start: top_level*
@@ -52,25 +52,26 @@ IDENTIFIER.-1: /[a-zA-Z0-9_+\-*\/%<>=!?]+/
 class IRGen:
     def __init__(self):
         self.module = ModuleOp([])
-        self.builder = Builder(InsertPoint.at_end(self.module.body.blocks[0]))
-        self.symbol_table = {}
-        self.str_cache = {}
-        self.str_cnt = 0
+        self.builder = Builder(InsertPoint.at_end(self.module.body.blocks[0]))  # string builder
+        self.symbol_table = {}  # var name -> SSAValue in current scope (ScopedDict could be used for nested scopes)
+        self.str_cache = {}  # reference string consts on dup values
+        self.str_cnt = 0  # string name gen
 
-        # Declare external printf
+        # declare printf signature from libc, so it can be called
         self.builder.insert(llvm.FuncOp("printf", llvm.LLVMFunctionType([llvm.LLVMPointerType()], builtin.i32, is_variadic=True), linkage=llvm.LinkageAttr("external")))
 
-    def gen(self, tree):
-        # Identify functions and main body
+    def gen(self, tree: Lark) -> ModuleOp:
         funcs = [n for n in tree.children if n.data == "defun"]
         main_exprs = [n for n in tree.children if n.data != "defun"]
 
-        # Collect and resolve signatures (Type Inference)
+        # sigs: function name -> list of type signatures from all call sites in the code
         sigs = {}
+        num_type = lambda n: f64 if "." in n.children[0] else i32
+        type_of = lambda n: llvm.LLVMPointerType() if n.data == "string" else num_type(n) if n.data == "number" else None
 
-        def _visit(n):
+        def _visit(n: Tree) -> None:
             if n.data == "call_expr":
-                args = [self._type_of(a) for a in n.children[1:]]
+                args = [type_of(a) for a in n.children[1:]]
                 if all(args):
                     sigs.setdefault(str(n.children[0]), []).append(args)
             for c in n.children:
@@ -78,6 +79,8 @@ class IRGen:
                     _visit(c)
 
         _visit(tree)
+
+        # resolved: function name -> final argument types
         resolved = {}
         for name, call_sigs in sigs.items():
             if not call_sigs:
@@ -86,7 +89,7 @@ class IRGen:
             for sig in call_sigs[1:]:
                 for i, (t1, t2) in enumerate(zip(final, sig)):
                     if t1 != t2:
-                        final[i] = f64  # Promote to float if mismatch
+                        final[i] = f64  # promote to float if mismatch
             resolved[name] = final
 
         # Generate Functions
@@ -130,13 +133,6 @@ class IRGen:
             self.builder = prev_builder
 
         return self.module
-
-    def _type_of(self, n):
-        if n.data == "string":
-            return llvm.LLVMPointerType()
-        if n.data == "number":
-            return f64 if "." in n.children[0] else i32
-        return None
 
     def _get_str_global(self, val: str) -> builtin.SSAValue:
         if val not in self.str_cache:
@@ -240,9 +236,9 @@ class IRGen:
             return None
 
 
-# ==============================================================================================================
+#
 # rewrites
-# ==============================================================================================================
+#
 
 
 class InlineFunctions(RewritePattern):
