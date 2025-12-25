@@ -2,8 +2,6 @@
 # requires-python = "==3.14"
 # dependencies = [
 #     "xdsl==0.56.0",
-#     "unicorn==2.1.4",
-#     "pyelftools==0.32",
 #     "lark==1.3.1",
 # ]
 # ///
