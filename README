@@ -52,4 +52,6 @@ interpret     LLVM backend    RISC-V backend
                     ▼               ▼
                  execute         emulate
 
-for more information, see: `./docs`
+for details, see `./docs`.
+
+a minimal LLVM backend-only implementation: https://github.com/sueszli/aziz-lang/tree/main/aziz-lang-tiny
