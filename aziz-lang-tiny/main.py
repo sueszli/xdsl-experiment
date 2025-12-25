@@ -63,83 +63,93 @@ class IRGen:
 
     def gen(self, tree: Lark) -> ModuleOp:
         # generate functions
-        funcs = [n for n in tree.children if n.data == "defun"]
+        function_defs = [node for node in tree.children if node.data == "defun"]
         inferred_arg_types = self._get_func_signatures()
-        for f in funcs:
-            func_name = str(f.children[0])
-            nodes = f.children[1:]
-            arg_nodes = next((n for n in nodes if n.data == "args"), None)
-            arg_names = [str(t) for t in arg_nodes.children] if arg_nodes else []
-            body_nodes = [n for n in nodes if n.data != "args"]
 
-            arg_types = inferred_arg_types.get(func_name, [i32] * len(arg_names))  # default to i32
-            ftype = FunctionType.from_lists(arg_types, [i32])  # assume 1x i32 return
+        for func_def in function_defs:
+            func_name = str(func_def.children[0])
+            remaining_nodes = func_def.children[1:]
 
-            # create mlir func_op
-            entry = Block(arg_types=arg_types)
-            func_op = func.FuncOp(func_name, ftype, Region(entry), visibility=StringAttr("private"))
+            args_node = next((node for node in remaining_nodes if node.data == "args"), None)
+            arg_names = [str(token) for token in args_node.children] if args_node else []
+            body_nodes = [node for node in remaining_nodes if node.data != "args"]
+
+            # determine argument types (default to i32 if not inferred)
+            arg_types = inferred_arg_types.get(func_name, [i32] * len(arg_names))
+            func_type = FunctionType.from_lists(arg_types, [i32])  # assume i32 return
+
+            # create mlir function operation
+            entry_block = Block(arg_types=arg_types)
+            func_op = func.FuncOp(func_name, func_type, Region(entry_block), visibility=StringAttr("private"))
             self.module.body.blocks[0].add_op(func_op)
 
             # enter function scope
             prev_builder = self.builder
-            self.builder = Builder(InsertPoint.at_end(entry))
-            self.symbol_table = {n: a for n, a in zip(arg_names, entry.args)}  # arg names -> ssa values
+            self.builder = Builder(InsertPoint.at_end(entry_block))
+            self.symbol_table = {name: arg for name, arg in zip(arg_names, entry_block.args)}
 
-            # create mlir return
-            last_val = self._gen_expr(body_nodes[-1]) if body_nodes else None
-            const_0 = self.builder.insert(arith.ConstantOp(IntegerAttr(0, i32))).results[0]
-            ret_val = last_val if last_val else const_0  # default return 0
-            self.builder.insert(func.ReturnOp(ret_val))
-            func_op.function_type = FunctionType.from_lists(arg_types, [ret_val.type])
+            # generate function body + return instruction
+            last_value = self._gen_expr(body_nodes[-1]) if body_nodes else None
+            zero_constant = self.builder.insert(arith.ConstantOp(IntegerAttr(0, i32))).results[0]
+            return_value = last_value if last_value else zero_constant
+            self.builder.insert(func.ReturnOp(return_value))
+            func_op.function_type = FunctionType.from_lists(arg_types, [return_value.type])
 
             # exit function scope
             self.builder = prev_builder
 
-        # create mlir main
-        main_exprs = [n for n in tree.children if n.data != "defun"]
-        if main_exprs:
-            entry = Block()
-            func_op = func.FuncOp("main", FunctionType.from_lists([], [i32]), Region(entry))
-            self.module.body.blocks[0].add_op(func_op)
+        # create main function
+        main_expressions = [node for node in tree.children if node.data != "defun"]
+        if main_expressions:
+            entry_block = Block()
+            main_func = func.FuncOp("main", FunctionType.from_lists([], [i32]), Region(entry_block))
+            self.module.body.blocks[0].add_op(main_func)
+
             prev_builder = self.builder
-            self.builder = Builder(InsertPoint.at_end(entry))
+            self.builder = Builder(InsertPoint.at_end(entry_block))
             self.symbol_table = {}
-            for expr in main_exprs:
+
+            for expr in main_expressions:
                 self._gen_expr(expr)
-            self.builder.insert(func.ReturnOp(self.builder.insert(arith.ConstantOp(IntegerAttr(0, i32))).results[0]))
+
+            zero_constant = self.builder.insert(arith.ConstantOp(IntegerAttr(0, i32))).results[0]
+            self.builder.insert(func.ReturnOp(zero_constant))
             self.builder = prev_builder
 
         return self.module
 
     def _get_func_signatures(self):
-        # sigs: function name -> list of argument types from all call sites
-        sigs = {}
-        num_type = lambda n: f64 if "." in n.children[0] else i32
-        type_of = lambda n: llvm.LLVMPointerType() if n.data == "string" else num_type(n) if n.data == "number" else None
+        # function name -> list of argument types from all call sites
+        call_signatures = {}
+        get_number_type = lambda node: f64 if "." in node.children[0] else i32
+        get_type = lambda node: llvm.LLVMPointerType() if node.data == "string" else get_number_type(node) if node.data == "number" else None
 
-        def _visit(n: Tree) -> None:
-            if n.data == "call_expr":
-                args = [type_of(a) for a in n.children[1:]]
-                if all(args):
-                    sigs.setdefault(str(n.children[0]), []).append(args)
-            for c in n.children:
-                if hasattr(c, "children"):
-                    _visit(c)
+        def visit_tree(node: Tree) -> None:
+            if node.data == "call_expr":
+                func_name = str(node.children[0])
+                arg_types = [get_type(arg) for arg in node.children[1:]]
+                if all(arg_types):
+                    call_signatures.setdefault(func_name, []).append(arg_types)
 
-        _visit(tree)
+            for child in node.children:
+                if hasattr(child, "children"):
+                    visit_tree(child)
 
-        # resolved: function name -> final argument types
-        resolved = {}
-        for name, call_sigs in sigs.items():
-            if not call_sigs:
+        visit_tree(tree)
+
+        # improve `call_signatures` by promoting types on mismatch
+        resolved_signatures = {}
+        for func_name, signatures in call_signatures.items():
+            if not signatures:
                 continue
-            final = list(call_sigs[0])
-            for sig in call_sigs[1:]:
-                for i, (t1, t2) in enumerate(zip(final, sig)):
-                    if t1 != t2:
-                        final[i] = f64  # promote to float if mismatch
-            resolved[name] = final
-        return resolved
+            final_types = list(signatures[0])
+            for signature in signatures[1:]:
+                for i, (type1, type2) in enumerate(zip(final_types, signature)):
+                    if type1 != type2:
+                        final_types[i] = f64  # promote int to float on mismatch
+            resolved_signatures[func_name] = final_types
+
+        return resolved_signatures
 
     def _gen_expr(self, node):
         if node.data == "number":
@@ -229,15 +239,21 @@ class IRGen:
             return None
 
     def _get_str_global(self, val: str) -> builtin.SSAValue:
+        # create global string constant if not cached
         if val not in self.str_cache:
-            name = f".str.{self.str_cnt}"
+            global_name = f".str.{self.str_cnt}"
             self.str_cnt += 1
-            self.str_cache[val] = name
-            data = val.encode("utf-8") + b"\0"
-            g = llvm.GlobalOp(llvm.LLVMArrayType.from_size_and_type(len(data), i8), StringAttr(name), linkage=llvm.LinkageAttr("internal"), constant=True, value=ArrayAttr([IntegerAttr(b, i8) for b in data]))
-            self.module.body.blocks[0].insert_op_before(g, self.module.body.blocks[0].first_op)
+            self.str_cache[val] = global_name
+            string_data = val.encode("utf-8") + b"\0"
+            array_type = llvm.LLVMArrayType.from_size_and_type(len(string_data), i8)
+            array_value = ArrayAttr([IntegerAttr(byte, i8) for byte in string_data])
 
-        return self.builder.insert(llvm.AddressOfOp(self.str_cache[val], llvm.LLVMPointerType())).results[0]
+            global_op = llvm.GlobalOp(array_type, StringAttr(global_name), linkage=llvm.LinkageAttr("internal"), constant=True, value=array_value)
+            self.module.body.blocks[0].insert_op_before(global_op, self.module.body.blocks[0].first_op)
+
+        # return address of cached global
+        global_name = self.str_cache[val]
+        return self.builder.insert(llvm.AddressOfOp(global_name, llvm.LLVMPointerType())).results[0]
 
 
 #
@@ -248,30 +264,41 @@ class IRGen:
 class InlineFunctions(RewritePattern):
     @op_type_rewrite_pattern
     def match_and_rewrite(self, op: func.CallOp, rewriter: PatternRewriteWalker):
-        if not self._callee(op):
+        callee = self._callee(op)
+        if not callee:
             return
-        is_recursive = any(isinstance(c, func.CallOp) and c.callee.string_value() == self._callee(op).sym_name.data for c in self._callee(op).walk())
+        callee_name = callee.sym_name.data
+        is_recursive = any(isinstance(child, func.CallOp) and child.callee.string_value() == callee_name for child in callee.walk())
         if is_recursive:
             return
+        is_single_line = len(list(callee.body.blocks[0].ops)) == 2  # one op + return
+        if not is_single_line:
+            return
 
-        copy = self._callee(op).clone().body.blocks[0]
-        for opr, arg in zip(op.operands, copy.args):
-            arg.replace_by(opr)
+        # clone the callee function body. replace args with call operands
+        cloned_block = callee.clone().body.blocks[0]
+        for operand, arg in zip(op.operands, cloned_block.args):
+            arg.replace_by(operand)
 
-        ops = list(copy.ops)
-        ret = ops[-1]
-        for o in ops[:-1]:
-            o.detach()
-            rewriter.insert_op(o, InsertPoint.before(op))
+        # insert all operations except the return, then replace call with return operands
+        operations = list(cloned_block.ops)
+        return_op = operations[-1]
+        for operation in operations[:-1]:
+            operation.detach()
+            rewriter.insert_op(operation, InsertPoint.before(op))
 
-        rewriter.replace_op(op, [], ret.operands)
+        rewriter.replace_op(op, [], return_op.operands)
 
     @lru_cache(None)
     def _callee(self, op):
-        top_most_module = op
-        while not isinstance(top_most_module, ModuleOp):
-            top_most_module = top_most_module.parent_op()
-        return next((o for o in top_most_module.body.blocks[0].ops if isinstance(o, func.FuncOp) and o.sym_name.data == op.callee.string_value()), None)
+        # find the module containing this operation
+        module = op
+        while not isinstance(module, ModuleOp):
+            module = module.parent_op()
+
+        # find the function with matching name
+        callee_name = op.callee.string_value()
+        return next((func_op for func_op in module.body.blocks[0].ops if isinstance(func_op, func.FuncOp) and func_op.sym_name.data == callee_name), None)
 
 
 class RemoveUnusedPrivateFunctions(RewritePattern):
@@ -279,10 +306,15 @@ class RemoveUnusedPrivateFunctions(RewritePattern):
 
     @op_type_rewrite_pattern
     def match_and_rewrite(self, op: func.FuncOp, rewriter: PatternRewriteWalker):
+        # keep main function and non-private functions
         if op.sym_name.data == "main" or op.sym_visibility != StringAttr("private"):
             return
+
+        # build set of used function names on first call
         if self._used is None:
-            self._used = {c.callee.string_value() for c in op.parent_op().walk() if isinstance(c, func.CallOp)}
+            self._used = {call.callee.string_value() for call in op.parent_op().walk() if isinstance(call, func.CallOp)}
+
+        # remove unused functions
         if op.sym_name.data not in self._used:
             rewriter.erase_op(op)
 
