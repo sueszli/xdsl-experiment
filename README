@@ -55,4 +55,4 @@ interpret     LLVM backend    RISC-V backend
 
 for details, see `./docs`.
 
-a minimal LLVM backend-only implementation: https://github.com/sueszli/aziz-lang/tree/main/aziz-lang-tiny
+for a minimal LLVM backend-only implementation see `./aziz-lang-tiny`.
